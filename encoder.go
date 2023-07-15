@@ -262,7 +262,7 @@ func (w *Encoder) appendHeader(b []byte) []byte {
 		bs++
 	}
 
-	b = append(b, Literal|Meta, MetaReset|0, byte(bs))
+	b = append(b, Literal|Meta, MetaReset|0, byte(bs)) //nolint:staticcheck
 
 	return b
 }
@@ -325,6 +325,7 @@ func (w *Encoder) appendOff(b []byte, l int) []byte {
 	}
 }
 
+//nolint:unused
 func dpr(format string, args ...interface{}) {
 	_, _ = fmt.Fprintf(os.Stderr, format, args...)
 }

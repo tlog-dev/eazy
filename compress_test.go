@@ -5,7 +5,7 @@ import (
 	"encoding/hex"
 	"flag"
 	"io"
-	"io/ioutil"
+	"os"
 	"testing"
 
 	//"github.com/nikandfor/assert"
@@ -168,7 +168,7 @@ func TestBug1(t *testing.T) {
 
 	//	tl.Printw("first")
 
-	_, _ = b.Write([]byte{Literal | Meta, MetaReset | 0, 4})
+	_, _ = b.Write([]byte{Literal | Meta, MetaReset | 0, 4}) //nolint:staticcheck
 	_, _ = b.Write([]byte{Literal | 3, 0x94, 0xa8, 0xfb, Copy | 9})
 
 	n, err := d.Read(p)
@@ -223,7 +223,7 @@ func TestOnFile(t *testing.T) {
 	}
 
 	r.Reset(&full)
-	buf = buf[:0]
+	//	buf = buf[:0]
 
 	var dec bytes.Buffer
 
@@ -382,7 +382,7 @@ func loadTestFile(tb testing.TB, f string) (err error) {
 		return
 	}
 
-	testData, err = ioutil.ReadFile(f)
+	testData, err = os.ReadFile(f)
 	if err != nil {
 		return errors.Wrap(err, "open data file")
 	}
