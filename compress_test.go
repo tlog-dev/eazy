@@ -1,4 +1,4 @@
-package tlz
+package eazy
 
 import (
 	"bytes"
