@@ -18,7 +18,7 @@ import (
 	"github.com/nikandfor/tlog/tlwire"
 )
 
-var fileFlag = flag.String("test-file", "../log.tlog", "file with tlog logs")
+var fileFlag = flag.String("test-file", "log.tlog", "file with tlog logs")
 
 var (
 	testData   []byte
@@ -29,7 +29,7 @@ var (
 func TestFileMagic(t *testing.T) {
 	var buf low.Buf
 
-	w := NewEncoder(&buf, MiB)
+	w := NewWriter(&buf, MiB)
 
 	_, err := w.Write([]byte{})
 	assert.NoError(t, err)
@@ -44,7 +44,7 @@ func TestLiteral(t *testing.T) {
 
 	var buf low.Buf
 
-	w := newEncoder(&buf, B, 1)
+	w := newWriter(&buf, B, 1)
 
 	n, err := w.Write([]byte("very_first_message"))
 	assert.Equal(t, 18, n)
@@ -54,7 +54,7 @@ func TestLiteral(t *testing.T) {
 	t.Logf("res\n%v", hex.Dump(buf))
 	t.Logf("res\n%v", Dump(buf))
 
-	r := &Decoder{
+	r := &Reader{
 		b: buf,
 	}
 
@@ -80,7 +80,7 @@ func TestCopy(t *testing.T) {
 
 	var buf low.Buf
 
-	w := newEncoder(&buf, B, 1)
+	w := newWriter(&buf, B, 1)
 
 	st := 0
 
@@ -100,7 +100,7 @@ func TestCopy(t *testing.T) {
 	t.Logf("buf  pos %x ht %x\n%v", w.pos, w.ht, hex.Dump(w.block))
 	t.Logf("res\n%v", hex.Dump(buf[st:]))
 
-	r := &Decoder{
+	r := &Reader{
 		b: buf,
 	}
 
@@ -138,7 +138,7 @@ func TestDumpOnelineText(t *testing.T) {
 	var dump, text low.Buf
 
 	d := NewDumper(&dump)
-	e := newEncoder(d, 1*1024, 2)
+	e := newWriter(d, 1*1024, 2)
 
 	cw := tlog.NewConsoleWriter(tlio.NewMultiWriter(e, &text), tlog.LstdFlags)
 
@@ -164,7 +164,7 @@ func TestBug1(t *testing.T) {
 	var b bytes.Buffer
 
 	p := make([]byte, 1000)
-	d := NewDecoder(&b)
+	d := NewReader(&b)
 
 	//	tl.Printw("first")
 
@@ -192,8 +192,8 @@ func TestOnFile(t *testing.T) {
 
 	var encoded bytes.Buffer
 	var full bytes.Buffer
-	w := NewEncoderHTSize(tlio.NewMultiWriter(&encoded, &full), 512, 256)
-	r := NewDecoder(&encoded)
+	w := NewWriterHTSize(tlio.NewMultiWriter(&encoded, &full), 512, 256)
+	r := NewReader(&encoded)
 	var buf []byte
 
 	//	dumper := tlwire.NewDumper(os.Stderr)
@@ -241,7 +241,7 @@ func BenchmarkLogCompressOneline(b *testing.B) {
 	b.ReportAllocs()
 
 	var full, small tlio.CountingIODiscard
-	w := NewEncoder(&small, 128*1024)
+	w := NewWriter(&small, 128*1024)
 
 	l := tlog.New(io.MultiWriter(&full, w))
 	tr := l.Start("span_name")
@@ -262,7 +262,7 @@ func BenchmarkLogCompressOnelineText(b *testing.B) {
 	b.ReportAllocs()
 
 	var full, small tlio.CountingIODiscard
-	w := NewEncoder(&small, 128*1024)
+	w := NewWriter(&small, 128*1024)
 	cw := tlog.NewConsoleWriter(io.MultiWriter(&full, w), tlog.LstdFlags)
 
 	l := tlog.New(cw)
@@ -292,7 +292,7 @@ func BenchmarkEncodeFile(b *testing.B) {
 	b.ResetTimer()
 
 	var c tlio.CountingIODiscard
-	w := NewEncoderHTSize(&c, BlockSize, HTSize)
+	w := NewWriterHTSize(&c, BlockSize, HTSize)
 
 	//	b.Logf("block %x  ht %x (%x * %x)", len(w.block), len(w.ht)*int(unsafe.Sizeof(w.ht[0])), len(w.ht), unsafe.Sizeof(w.ht[0]))
 
@@ -326,7 +326,7 @@ func BenchmarkDecodeFile(b *testing.B) {
 	}
 
 	encoded := make(low.Buf, 0, len(testData)/2)
-	w := NewEncoderHTSize(&encoded, BlockSize, HTSize)
+	w := NewWriterHTSize(&encoded, BlockSize, HTSize)
 
 	const limit = 20000
 
@@ -354,7 +354,7 @@ func BenchmarkDecodeFile(b *testing.B) {
 	//	var decoded []byte
 	decoded := make(low.Buf, 0, len(testData))
 	buf := make([]byte, 4096)
-	r := NewDecoderBytes(encoded)
+	r := NewReaderBytes(encoded)
 
 	for i := 0; i < b.N/testsCount; i++ {
 		r.ResetBytes(encoded)
@@ -425,8 +425,8 @@ func FuzzEncoder(f *testing.F) {
 	var ebuf, dbuf bytes.Buffer
 	buf := make([]byte, 16)
 
-	e := NewEncoderHTSize(&ebuf, 512, 32)
-	d := NewDecoder(&dbuf)
+	e := NewWriterHTSize(&ebuf, 512, 32)
+	d := NewReader(&dbuf)
 
 	f.Fuzz(func(t *testing.T, p0, p1, p2 []byte) {
 		e.Reset(e.Writer)

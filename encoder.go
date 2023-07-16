@@ -8,7 +8,7 @@ import (
 )
 
 type (
-	Encoder struct {
+	Writer struct {
 		io.Writer
 
 		b       []byte
@@ -74,25 +74,25 @@ const FileMagic = "\x00\x02eazy"
 
 var zeros = make([]byte, 1024)
 
-func NewEncoder(w io.Writer, bs int) *Encoder {
-	if bs&(bs-1) != 0 || bs < 256 {
-		panic("block size must be power of two and at least 1KB")
+func NewWriter(w io.Writer, bs int) *Writer {
+	if bs&(bs-1) != 0 || bs < 1024 {
+		panic("block size must be a power of two and at least 1KB")
 	}
 
-	return NewEncoderHTSize(w, bs, bs>>6)
+	return NewWriterHTSize(w, bs, bs>>6)
 }
 
-func newEncoder(w io.Writer, bs, ss int) *Encoder {
-	return NewEncoderHTSize(w, bs, bs>>ss)
+func newWriter(w io.Writer, bs, ss int) *Writer {
+	return NewWriterHTSize(w, bs, bs>>ss)
 }
 
-func NewEncoderHTSize(w io.Writer, bs, hlen int) *Encoder {
-	if (bs-1)&bs != 0 {
-		panic("block size must be power of two and at least 1KB")
+func NewWriterHTSize(w io.Writer, bs, hlen int) *Writer {
+	if (bs-1)&bs != 0 || bs < 32 {
+		panic("block size must be a power of two")
 	}
 
-	if (hlen-1)&hlen != 0 {
-		panic("hash table size must be power of two")
+	if (hlen-1)&hlen != 0 || hlen < 4 {
+		panic("hash table size must be a power of two")
 	}
 
 	hsh := uint(2)
@@ -100,7 +100,7 @@ func NewEncoderHTSize(w io.Writer, bs, hlen int) *Encoder {
 		hsh++
 	}
 
-	return &Encoder{
+	return &Writer{
 		Writer: w,
 		block:  make([]byte, bs),
 		mask:   bs - 1,
@@ -109,13 +109,13 @@ func NewEncoderHTSize(w io.Writer, bs, hlen int) *Encoder {
 	}
 }
 
-func (w *Encoder) Reset(wr io.Writer) {
+func (w *Writer) Reset(wr io.Writer) {
 	w.Writer = wr
 
 	w.reset()
 }
 
-func (w *Encoder) reset() {
+func (w *Writer) reset() {
 	w.pos = 0
 	for i := 0; i < len(w.block); {
 		i += copy(w.block[i:], zeros)
@@ -126,7 +126,7 @@ func (w *Encoder) reset() {
 }
 
 // Write is io.Writer implementation.
-func (w *Encoder) Write(p []byte) (done int, err error) { //nolint:gocognit
+func (w *Writer) Write(p []byte) (done int, err error) { //nolint:gocognit
 	w.b = w.b[:0]
 
 	if w.pos == 0 {
@@ -254,7 +254,7 @@ func (w *Encoder) Write(p []byte) (done int, err error) { //nolint:gocognit
 	return done, err
 }
 
-func (w *Encoder) appendHeader(b []byte) []byte {
+func (w *Writer) appendHeader(b []byte) []byte {
 	b = append(b, Literal|Meta, MetaMagic|2, 'e', 'a', 'z', 'y')
 
 	bs := 0
@@ -267,7 +267,7 @@ func (w *Encoder) appendHeader(b []byte) []byte {
 	return b
 }
 
-func (w *Encoder) appendLiteral(d []byte, s, e int) {
+func (w *Writer) appendLiteral(d []byte, s, e int) {
 	w.b = w.appendTag(w.b, Literal, e-s)
 	w.b = append(w.b, d[s:e]...)
 
@@ -278,7 +278,7 @@ func (w *Encoder) appendLiteral(d []byte, s, e int) {
 	}
 }
 
-func (w *Encoder) appendCopy(st, end int) {
+func (w *Writer) appendCopy(st, end int) {
 	w.b = w.appendTag(w.b, Copy, end-st)
 	w.b = w.appendOff(w.b, int(w.pos)-end)
 
@@ -295,7 +295,7 @@ func (w *Encoder) appendCopy(st, end int) {
 	}
 }
 
-func (w *Encoder) appendTag(b []byte, tag byte, l int) []byte {
+func (w *Writer) appendTag(b []byte, tag byte, l int) []byte {
 	switch {
 	case l < Len1:
 		return append(b, tag|byte(l))
@@ -310,7 +310,7 @@ func (w *Encoder) appendTag(b []byte, tag byte, l int) []byte {
 	}
 }
 
-func (w *Encoder) appendOff(b []byte, l int) []byte {
+func (w *Writer) appendOff(b []byte, l int) []byte {
 	switch {
 	case l < Off1:
 		return append(b, byte(l))

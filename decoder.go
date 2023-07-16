@@ -11,7 +11,7 @@ import (
 )
 
 type (
-	Decoder struct {
+	Reader struct {
 		io.Reader
 
 		// output
@@ -32,7 +32,7 @@ type (
 	Dumper struct {
 		io.Writer
 
-		d Decoder
+		d Reader
 
 		GlobalOffset int64
 
@@ -42,24 +42,24 @@ type (
 
 var eUnexpectedEOF = errors.NewNoCaller("need more")
 
-func NewDecoder(r io.Reader) *Decoder {
-	return &Decoder{
+func NewReader(r io.Reader) *Reader {
+	return &Reader{
 		Reader: r,
 	}
 }
 
-func NewDecoderBytes(b []byte) *Decoder {
-	return &Decoder{
+func NewReaderBytes(b []byte) *Reader {
+	return &Reader{
 		b: b,
 	}
 }
 
-func (d *Decoder) Reset(rd io.Reader) {
+func (d *Reader) Reset(rd io.Reader) {
 	d.ResetBytes(nil)
 	d.Reader = rd
 }
 
-func (d *Decoder) ResetBytes(b []byte) {
+func (d *Reader) ResetBytes(b []byte) {
 	d.Reader = nil
 
 	if b != nil {
@@ -73,7 +73,7 @@ func (d *Decoder) ResetBytes(b []byte) {
 	d.state = 0
 }
 
-func (d *Decoder) Read(p []byte) (n int, err error) {
+func (d *Reader) Read(p []byte) (n int, err error) {
 	var m, i int
 
 	for n < len(p) && err == nil {
@@ -100,7 +100,7 @@ func (d *Decoder) Read(p []byte) (n int, err error) {
 	return n, err
 }
 
-func (d *Decoder) read(p []byte, st int) (n, i int, err error) {
+func (d *Reader) read(p []byte, st int) (n, i int, err error) {
 	//	defer func() { println("eazy.Decoder.read", st, i, n, err, len(d.b)) }()
 	if d.state != 0 && len(d.block) == 0 {
 		return 0, st, errors.New("missed meta")
@@ -147,7 +147,7 @@ func (d *Decoder) read(p []byte, st int) (n, i int, err error) {
 	return
 }
 
-func (d *Decoder) readTag(st int) (i int, err error) {
+func (d *Reader) readTag(st int) (i int, err error) {
 	tag, l, i, err := d.tag(d.b, st)
 	if err != nil {
 		return st, err
@@ -180,7 +180,7 @@ func (d *Decoder) readTag(st int) (i int, err error) {
 	return i, nil
 }
 
-func (d *Decoder) continueMetaTag(st int) (i int, err error) {
+func (d *Reader) continueMetaTag(st int) (i int, err error) {
 	i = st
 	st--
 
@@ -276,7 +276,7 @@ func (d *Decoder) continueMetaTag(st int) (i int, err error) {
 	return i, nil
 }
 
-func (d *Decoder) roff(b []byte, st int) (off, i int, err error) {
+func (d *Reader) roff(b []byte, st int) (off, i int, err error) {
 	if st >= len(b) {
 		return 0, st, eUnexpectedEOF
 	}
@@ -323,7 +323,7 @@ func (d *Decoder) roff(b []byte, st int) (off, i int, err error) {
 	return off, i, nil
 }
 
-func (d *Decoder) tag(b []byte, st int) (tag, l, i int, err error) {
+func (d *Reader) tag(b []byte, st int) (tag, l, i int, err error) {
 	if st >= len(b) {
 		return 0, 0, st, eUnexpectedEOF
 	}
@@ -371,7 +371,7 @@ func (d *Decoder) tag(b []byte, st int) (tag, l, i int, err error) {
 	return tag, l, i, nil
 }
 
-func (d *Decoder) more() (err error) {
+func (d *Reader) more() (err error) {
 	if d.Reader == nil {
 		return io.EOF
 	}
