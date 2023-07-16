@@ -11,6 +11,8 @@ type (
 	Writer struct {
 		io.Writer
 
+		AppendMagic bool
+
 		b       []byte
 		written int64
 
@@ -102,10 +104,13 @@ func NewWriterHTSize(w io.Writer, bs, hlen int) *Writer {
 
 	return &Writer{
 		Writer: w,
-		block:  make([]byte, bs),
-		mask:   bs - 1,
-		ht:     make([]uint32, hlen),
-		hsh:    hsh,
+
+		AppendMagic: true,
+
+		block: make([]byte, bs),
+		mask:  bs - 1,
+		ht:    make([]uint32, hlen),
+		hsh:   hsh,
 	}
 }
 
@@ -227,9 +232,11 @@ func (w *Writer) Write(p []byte) (done int, err error) { //nolint:gocognit
 
 		if done < ist {
 			w.appendLiteral(p, done, ist)
+			w.copyData(p, done, ist)
 		}
 
 		w.appendCopy(st, end)
+		w.copyData(p, ist, iend)
 
 		h = *(*uint32)(unsafe.Pointer(&p[i+1])) * 0x1e35a7bd >> w.hsh
 		w.ht[h] = uint32(start + i + 1)
@@ -240,6 +247,7 @@ func (w *Writer) Write(p []byte) (done int, err error) { //nolint:gocognit
 
 	if done < len(p) {
 		w.appendLiteral(p, done, len(p))
+		w.copyData(p, done, len(p))
 
 		done = len(p)
 	}
@@ -255,41 +263,41 @@ func (w *Writer) Write(p []byte) (done int, err error) { //nolint:gocognit
 }
 
 func (w *Writer) appendHeader(b []byte) []byte {
-	b = append(b, Literal|Meta, MetaMagic|2, 'e', 'a', 'z', 'y')
-
-	bs := 0
-	for q := len(w.block); q != 1; q >>= 1 {
-		bs++
+	if w.AppendMagic {
+		b = w.appendMagic(b)
 	}
 
-	b = append(b, Literal|Meta, MetaReset|0, byte(bs)) //nolint:staticcheck
+	b = w.appendReset(b, len(w.block))
 
 	return b
 }
 
-func (w *Writer) appendLiteral(d []byte, s, e int) {
-	w.b = w.appendTag(w.b, Literal, e-s)
-	w.b = append(w.b, d[s:e]...)
-
-	for s < e {
-		n := copy(w.block[int(w.pos)&w.mask:], d[s:e])
-		s += n
-		w.pos += int64(n)
+func (w *Writer) appendReset(b []byte, block int) []byte {
+	bs := 0
+	for q := block; q != 1; q >>= 1 {
+		bs++
 	}
+
+	return append(b, Literal|Meta, MetaReset|0, byte(bs)) //nolint:staticcheck
+}
+
+func (w *Writer) appendMagic(b []byte) []byte {
+	return append(b, Literal|Meta, MetaMagic|2, 'e', 'a', 'z', 'y')
+}
+
+func (w *Writer) appendLiteral(d []byte, st, end int) {
+	w.b = w.appendTag(w.b, Literal, end-st)
+	w.b = append(w.b, d[st:end]...)
 }
 
 func (w *Writer) appendCopy(st, end int) {
 	w.b = w.appendTag(w.b, Copy, end-st)
 	w.b = w.appendOff(w.b, int(w.pos)-end)
+}
 
-	var n int
+func (w *Writer) copyData(d []byte, st, end int) {
 	for st < end {
-		limit := len(w.block)
-		if st&w.mask < end&w.mask {
-			limit = end & w.mask
-		}
-
-		n = copy(w.block[int(w.pos)&w.mask:], w.block[st&w.mask:limit])
+		n := copy(w.block[int(w.pos)&w.mask:], d[st:end])
 		st += n
 		w.pos += int64(n)
 	}

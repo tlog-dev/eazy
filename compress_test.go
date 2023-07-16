@@ -282,7 +282,7 @@ func BenchmarkLogCompressOnelineText(b *testing.B) {
 
 const BlockSize, HTSize = 1024 * 1024, 16 * 1024
 
-func BenchmarkEncodeFile(b *testing.B) {
+func BenchmarkCompressFile(b *testing.B) {
 	err := loadTestFile(b, *fileFlag)
 	if err != nil {
 		b.Skipf("loading data: %v", err)
@@ -319,7 +319,7 @@ func BenchmarkEncodeFile(b *testing.B) {
 	b.SetBytes(int64(written / b.N))
 }
 
-func BenchmarkDecodeFile(b *testing.B) {
+func BenchmarkDecompressFile(b *testing.B) {
 	err := loadTestFile(b, *fileFlag)
 	if err != nil {
 		b.Skipf("loading data: %v", err)
@@ -403,7 +403,7 @@ func loadTestFile(tb testing.TB, f string) (err error) {
 	return
 }
 
-func FuzzEncoder(f *testing.F) {
+func FuzzEazy(f *testing.F) {
 	f.Add(
 		[]byte("prefix_1234_suffix"),
 		[]byte("prefix_567_suffix"),
