@@ -1,4 +1,4 @@
-module github.com/nikandfor/eazy
+module tlog.app/go/eazy
 
 go 1.20
 
