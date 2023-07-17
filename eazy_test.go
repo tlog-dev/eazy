@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	//"github.com/nikandfor/assert"
+	//	"github.com/nikandfor/assert"
 	"github.com/nikandfor/errors"
 	"github.com/nikandfor/hacked/low"
 	"github.com/stretchr/testify/assert"
@@ -187,7 +187,7 @@ func TestOnFile(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, len(msg), n)
 
-		assert.Equal(t, msg, []byte(buf[:n]))
+		assert.Equal(t, msg, buf[:n])
 
 		if t.Failed() {
 			break
@@ -195,8 +195,6 @@ func TestOnFile(t *testing.T) {
 	}
 
 	enc.R = 0
-	//r.Reset(&full)
-	//	buf = buf[:0]
 
 	var dec low.Buf
 
@@ -481,12 +479,4 @@ func nextIndex(st int, b []byte, s ...[]byte) (i int) {
 	}
 
 	return i
-}
-
-func min(x, y int) int {
-	if x < y {
-		return x
-	}
-
-	return y
 }

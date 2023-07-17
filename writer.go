@@ -8,11 +8,13 @@ import (
 )
 
 type (
+	// Writer is eazy compressor.
 	Writer struct {
 		io.Writer
 
-		AppendMagic bool
+		AppendMagic bool // Append FileMagic in the beginning of the stream. true by default.
 
+		// output
 		b       []byte
 		written int64
 
@@ -69,24 +71,36 @@ const (
 	MetaMagic = iota << 3 // 4: "eazy"
 	MetaReset             // 1: block_size_log
 
-	MetaTagMask = 0b1111_1000
+	MetaTagMask = 0b1111_1000 // tag | log(size)
 )
 
+// FileMagic is the first bytes in a compressed stream.
 const FileMagic = "\x00\x02eazy"
 
 var zeros = make([]byte, 1024)
 
-func NewWriter(wr io.Writer, bs, htable int) *Writer {
+// NewWriter creates new compressor writing to wr, with block size,
+// and hash table size.
+//
+// Block size is haw far back similar byte sequences are searched.
+// Hash table size is how many sequences we remember.
+// Both values should be chosen for specific use case, but
+// 1 * eazy.MiB block and 1024 table size is a good starting point.
+//
+// Both block and table sizes must be a power of two.
+func NewWriter(wr io.Writer, block, htable int) *Writer {
 	w := &Writer{
 		Writer:      wr,
 		AppendMagic: true,
 	}
 
-	w.init(bs, htable)
+	w.init(block, htable)
 
 	return w
 }
 
+// Reset resets stream. This is equivalent to creating a new Writer
+// with the same block and hash table size.
 func (w *Writer) Reset(wr io.Writer) {
 	w.Writer = wr
 	w.reset()
@@ -103,10 +117,11 @@ func (w *Writer) reset() {
 	}
 }
 
-func (w *Writer) ResetSize(wr io.Writer, bs, htable int) {
+// ResetSize recreates Writer trying reuse allocated objects.
+func (w *Writer) ResetSize(wr io.Writer, block, htable int) {
 	w.Writer = wr
 	w.pos = 0
-	w.init(bs, htable)
+	w.init(block, htable)
 }
 
 func (w *Writer) init(bs, hs int) {
@@ -349,7 +364,7 @@ func (w *Writer) appendOff(b []byte, l int) []byte {
 	}
 }
 
-//nolint:unused
+//nolint:unused,deadcode,goprintffuncname
 func dpr(format string, args ...interface{}) {
 	_, _ = fmt.Fprintf(os.Stderr, format, args...)
 }

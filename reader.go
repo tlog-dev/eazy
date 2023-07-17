@@ -10,13 +10,13 @@ import (
 )
 
 type (
+	// Reader is eazy decompressor.
 	Reader struct {
 		io.Reader
 
-		// output
 		block []byte
 		mask  int
-		pos   int64 // output stream pos
+		pos   int64 // stream position % len(block)
 
 		// current tag
 		state    byte
@@ -28,6 +28,7 @@ type (
 		boff int64 // input stream offset to b[0]
 	}
 
+	// Dumper is a debug printer for compressed data.
 	Dumper struct {
 		io.Writer
 
@@ -41,37 +42,42 @@ type (
 
 var eUnexpectedEOF = errors.NewNoCaller("need more")
 
+// NewReader creates new decompressor reading from r.
 func NewReader(r io.Reader) *Reader {
 	return &Reader{
 		Reader: r,
 	}
 }
 
+// NewReaderBytes creates new decompressor reading from b.
+// A bit more efficient NewReader(bytes.NewReader(b)).
 func NewReaderBytes(b []byte) *Reader {
 	return &Reader{
 		b: b,
 	}
 }
 
+// Reset resets the stream.
 func (d *Reader) Reset(rd io.Reader) {
-	d.ResetBytes(nil)
+	d.ResetBytes(d.b[:len(d.b)])
 	d.Reader = rd
 }
 
+// ResetBytes resets the stream and replaces b.
 func (d *Reader) ResetBytes(b []byte) {
 	d.Reader = nil
+	d.b = b
 
-	if b != nil {
-		d.b = b
-	}
+	d.block = d.block[:0]
+	d.pos = 0
 
 	d.i = 0
-	d.b = d.b[:len(b)]
 	d.boff = 0
 
 	d.state = 0
 }
 
+// Read is io.Reader implementation.
 func (d *Reader) Read(p []byte) (n int, err error) {
 	var m, i int
 
@@ -190,7 +196,7 @@ func (d *Reader) continueMetaTag(st int) (i int, err error) {
 	{ // legacy fallback
 		const legacy = "\x00\x03tlz\x00\x13000\x00\x20"
 
-		if len(d.b) < len(legacy)+1 && bytes.Equal(d.b, []byte(legacy)[:len(d.b)]) {
+		if len(d.b) < len(legacy)+1 && bytes.Equal(d.b, []byte(legacy)[:len(d.b)]) { //nolint:gocritic
 			return st, eUnexpectedEOF
 		}
 
@@ -401,6 +407,7 @@ func (d *Reader) more() (err error) {
 	return err
 }
 
+// Dump returns debug printed compressed buffer p.
 func Dump(p []byte) string {
 	var d Dumper
 
@@ -412,12 +419,14 @@ func Dump(p []byte) string {
 	return string(d.b)
 }
 
+// NewDumper creates new debug compressed stream printer.
 func NewDumper(w io.Writer) *Dumper {
 	return &Dumper{
 		Writer: w,
 	}
 }
 
+// Write implements io.Writer.
 func (w *Dumper) Write(p []byte) (i int, err error) {
 	w.b = w.b[:0]
 
