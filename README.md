@@ -30,7 +30,7 @@ Multiple streams can be safely concatenated.
 
 ```
 func CompressingWriter(w io.Writer) io.Writer {
-	return eazy.NewWriter(w, eazy.MiB) // block size must be a power of two
+	return eazy.NewWriter(w, eazy.MiB, 1024) // block and hash table sizes must be a power of two
 }
 
 func DecompressingReader(r io.Reader) io.Reader {
