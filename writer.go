@@ -76,57 +76,73 @@ const FileMagic = "\x00\x02eazy"
 
 var zeros = make([]byte, 1024)
 
-func NewWriter(w io.Writer, bs int) *Writer {
-	if bs&(bs-1) != 0 || bs < 1024 {
-		panic("block size must be a power of two and at least 1KB")
-	}
-
-	return NewWriterHTSize(w, bs, bs>>6)
-}
-
-func newWriter(w io.Writer, bs, ss int) *Writer {
-	return NewWriterHTSize(w, bs, bs>>ss)
-}
-
-func NewWriterHTSize(w io.Writer, bs, hlen int) *Writer {
-	if (bs-1)&bs != 0 || bs < 32 {
-		panic("block size must be a power of two")
-	}
-
-	if (hlen-1)&hlen != 0 || hlen < 4 {
-		panic("hash table size must be a power of two")
-	}
-
-	hsh := uint(2)
-	for 1<<(32-hsh) != hlen {
-		hsh++
-	}
-
-	return &Writer{
-		Writer: w,
-
+func NewWriter(wr io.Writer, bs, htable int) *Writer {
+	w := &Writer{
+		Writer:      wr,
 		AppendMagic: true,
-
-		block: make([]byte, bs),
-		mask:  bs - 1,
-		ht:    make([]uint32, hlen),
-		hsh:   hsh,
 	}
+
+	w.init(bs, htable)
+
+	return w
 }
 
 func (w *Writer) Reset(wr io.Writer) {
 	w.Writer = wr
-
 	w.reset()
 }
 
 func (w *Writer) reset() {
 	w.pos = 0
+
 	for i := 0; i < len(w.block); {
 		i += copy(w.block[i:], zeros)
 	}
 	for i := range w.ht {
 		w.ht[i] = 0
+	}
+}
+
+func (w *Writer) ResetSize(wr io.Writer, bs, htable int) {
+	w.Writer = wr
+	w.pos = 0
+	w.init(bs, htable)
+}
+
+func (w *Writer) init(bs, hs int) {
+	if (bs-1)&bs != 0 || bs < 32 {
+		panic("block size must be a power of two")
+	}
+
+	if (hs-1)&hs != 0 || hs < 4 {
+		panic("hash table size must be a power of two")
+	}
+
+	w.mask = bs - 1
+
+	if bs <= cap(w.block) {
+		w.block = w.block[:bs]
+
+		for i := 0; i < len(w.block); {
+			i += copy(w.block[i:], zeros)
+		}
+	} else {
+		w.block = make([]byte, bs)
+	}
+
+	w.hsh = uint(2)
+	for 1<<(32-w.hsh) != hs {
+		w.hsh++
+	}
+
+	if hs <= cap(w.ht) {
+		w.ht = w.ht[:hs]
+
+		for i := range w.ht {
+			w.ht[i] = 0
+		}
+	} else {
+		w.ht = make([]uint32, hs)
 	}
 }
 

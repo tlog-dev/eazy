@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"testing"
+	"time"
 
 	//"github.com/nikandfor/assert"
 	"github.com/nikandfor/errors"
@@ -18,7 +19,10 @@ type (
 	ByteCounter int64
 )
 
-var fileFlag = flag.String("test-file", "log.tlog", "file with tlog logs")
+var (
+	fileFlag       = flag.String("test-file", "log.tlog", "file with tlog logs")
+	ratioEstimator = flag.Int("ratio-estimator", 0, "ratio estimator iterations to run")
+)
 
 var (
 	testData   []byte
@@ -29,7 +33,7 @@ var (
 func TestFileMagic(t *testing.T) {
 	var buf low.Buf
 
-	w := NewWriter(&buf, MiB)
+	w := NewWriter(&buf, MiB, 512)
 
 	_, err := w.Write([]byte{})
 	assert.NoError(t, err)
@@ -44,7 +48,7 @@ func TestLiteral(t *testing.T) {
 
 	var buf low.Buf
 
-	w := newWriter(&buf, B, 1)
+	w := NewWriter(&buf, B, B>>1)
 
 	n, err := w.Write([]byte("very_first_message"))
 	assert.Equal(t, 18, n)
@@ -80,7 +84,7 @@ func TestCopy(t *testing.T) {
 
 	var buf low.Buf
 
-	w := newWriter(&buf, B, 1)
+	w := NewWriter(&buf, B, B>>1)
 
 	st := 0
 
@@ -165,7 +169,7 @@ func TestOnFile(t *testing.T) {
 	var enc low.BufReader
 	var buf []byte
 
-	w := NewWriterHTSize(&enc, 512, 256)
+	w := NewWriter(&enc, 512, 256)
 	r := NewReader(&enc)
 
 	for i := 0; i < testsCount; i++ {
@@ -207,7 +211,60 @@ func TestOnFile(t *testing.T) {
 	t.Logf("compression ratio %v", dec.LenF()/enc.Buf.LenF())
 }
 
-const BlockSize, HTSize = 1024 * 1024, 16 * 1024
+func TestOnFileRatioEstimator(t *testing.T) {
+	if *ratioEstimator == 0 {
+		t.Skipf("set --ratio-estimator=N to run, N is number of iterations")
+	}
+
+	err := loadTestFile(t, *fileFlag)
+	if err != nil {
+		t.Skipf("loading data: %v", err)
+	}
+
+	N := *ratioEstimator
+
+	var buf low.Buf
+	w := NewWriter(&buf, 1024, 16)
+
+	for bs := 4 * 1024; bs <= 4*1024*1024; bs <<= 1 {
+		lastRatio := 0.
+
+		for hs := 64; hs <= 64*1024; hs <<= 1 {
+			st := time.Now()
+
+			for n := 0; n < N; n++ {
+				buf.Reset()
+				w.ResetSize(&buf, bs, hs)
+
+				for i := 0; i < testsCount; i++ {
+					msg := testData[testOff[i]:testOff[i+1]]
+
+					_, err := w.Write(msg)
+					if err != nil {
+						t.Errorf("write: %v", err)
+						return
+					}
+				}
+			}
+
+			d := time.Since(st)
+
+			ratio := float64(len(testData)) / buf.LenF()
+			speed := float64(len(testData)) * float64(N) / (1 << 20) / d.Seconds()
+
+			t.Logf("block %7d  htable %7d  ratio %5.1f  speed %7.1f MBps  written %6d events  %8d bytes  compressed size %8d bytes",
+				bs, hs, ratio, speed, testsCount, len(testData), buf.Len())
+
+			if ratio < lastRatio*1.01 && ratio > 2 {
+				break
+			}
+
+			lastRatio = ratio
+		}
+	}
+}
+
+const BlockSize, HTSize = 1024 * 1024, 2 * 1024
 
 func BenchmarkCompressFile(b *testing.B) {
 	err := loadTestFile(b, *fileFlag)
@@ -219,7 +276,7 @@ func BenchmarkCompressFile(b *testing.B) {
 	b.ResetTimer()
 
 	var c ByteCounter
-	w := NewWriterHTSize(&c, BlockSize, HTSize)
+	w := NewWriter(&c, BlockSize, HTSize)
 
 	//	b.Logf("block %x  ht %x (%x * %x)", len(w.block), len(w.ht)*int(unsafe.Sizeof(w.ht[0])), len(w.ht), unsafe.Sizeof(w.ht[0]))
 
@@ -253,7 +310,7 @@ func BenchmarkDecompressFile(b *testing.B) {
 	}
 
 	encoded := make(low.Buf, 0, len(testData)/2)
-	w := NewWriterHTSize(&encoded, BlockSize, HTSize)
+	w := NewWriter(&encoded, BlockSize, HTSize)
 
 	const limit = 20000
 
@@ -367,7 +424,7 @@ func FuzzEazy(f *testing.F) {
 	var wbuf, rbuf bytes.Buffer
 	buf := make([]byte, 16)
 
-	w := NewWriterHTSize(&wbuf, 512, 32)
+	w := NewWriter(&wbuf, 512, 32)
 	r := NewReader(&rbuf)
 
 	f.Fuzz(func(t *testing.T, p0, p1, p2 []byte) {
