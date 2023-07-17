@@ -10,12 +10,12 @@ import (
 
 	//"github.com/nikandfor/assert"
 	"github.com/nikandfor/errors"
+	"github.com/nikandfor/hacked/low"
 	"github.com/stretchr/testify/assert"
+)
 
-	"github.com/nikandfor/tlog"
-	"github.com/nikandfor/tlog/low"
-	"github.com/nikandfor/tlog/tlio"
-	"github.com/nikandfor/tlog/tlwire"
+type (
+	ByteCounter int64
 )
 
 var fileFlag = flag.String("test-file", "log.tlog", "file with tlog logs")
@@ -132,35 +132,7 @@ func TestCopy(t *testing.T) {
 	//	t.Logf("compression ratio: %.3f", float64(18+17)/float64(len(buf)))
 }
 
-func TestDumpOnelineText(t *testing.T) {
-	t.Skip()
-
-	var dump, text low.Buf
-
-	d := NewDumper(&dump)
-	e := newWriter(d, 1*1024, 2)
-
-	cw := tlog.NewConsoleWriter(tlio.NewMultiWriter(e, &text), tlog.LstdFlags)
-
-	l := tlog.New(cw)
-	tr := l.Start("span_name")
-
-	types := []string{"type_a", "value_b", "qweqew", "asdads"}
-
-	for i := 0; i < 20; i++ {
-		//	tr := l.Start("span_name")
-		tr.Printw("some example message", "i", i, "type", types[i%len(types)])
-		//	tr.Finish()
-	}
-
-	t.Logf("text:\n%s", text)
-	t.Logf("dump:\n%s", dump)
-}
-
 func TestBug1(t *testing.T) {
-	//	tl = tlog.NewTestLogger(t, "", nil)
-	//	tlog.DefaultLogger = tl
-
 	var b bytes.Buffer
 
 	p := make([]byte, 1000)
@@ -190,18 +162,14 @@ func TestOnFile(t *testing.T) {
 		t.Skipf("loading data: %v", err)
 	}
 
-	var encoded bytes.Buffer
-	var full bytes.Buffer
-	w := NewWriterHTSize(tlio.NewMultiWriter(&encoded, &full), 512, 256)
-	r := NewReader(&encoded)
+	var enc low.BufReader
 	var buf []byte
 
-	//	dumper := tlwire.NewDumper(os.Stderr)
+	w := NewWriterHTSize(&enc, 512, 256)
+	r := NewReader(&enc)
 
 	for i := 0; i < testsCount; i++ {
 		msg := testData[testOff[i]:testOff[i+1]]
-
-		//	_, _ = dumper.Write(msg)
 
 		n, err := w.Write(msg)
 		assert.NoError(t, err)
@@ -222,10 +190,11 @@ func TestOnFile(t *testing.T) {
 		}
 	}
 
-	r.Reset(&full)
+	enc.R = 0
+	//r.Reset(&full)
 	//	buf = buf[:0]
 
-	var dec bytes.Buffer
+	var dec low.Buf
 
 	n, err := io.Copy(&dec, r)
 	assert.NoError(t, err)
@@ -235,49 +204,7 @@ func TestOnFile(t *testing.T) {
 	assert.Equal(t, testData[:min], dec.Bytes())
 
 	//	t.Logf("metrics: %v  bytes %v  events %v", mm, dec.Len(), testsCount)
-}
-
-func BenchmarkLogCompressOneline(b *testing.B) {
-	b.ReportAllocs()
-
-	var full, small tlio.CountingIODiscard
-	w := NewWriter(&small, 128*1024)
-
-	l := tlog.New(io.MultiWriter(&full, w))
-	tr := l.Start("span_name")
-
-	types := []string{"type_a", "value_b", "qweqew", "asdads"}
-
-	for i := 0; i < b.N; i++ {
-		//	tr := l.Start("span_name")
-		tr.Printw("some example message", "i", i, "type", types[i%len(types)])
-		//	tr.Finish()
-	}
-
-	b.SetBytes(full.Bytes.Load() / int64(b.N))
-	b.ReportMetric(float64(full.Bytes.Load())/float64(small.Bytes.Load()), "ratio")
-}
-
-func BenchmarkLogCompressOnelineText(b *testing.B) {
-	b.ReportAllocs()
-
-	var full, small tlio.CountingIODiscard
-	w := NewWriter(&small, 128*1024)
-	cw := tlog.NewConsoleWriter(io.MultiWriter(&full, w), tlog.LstdFlags)
-
-	l := tlog.New(cw)
-	tr := l.Start("span_name")
-
-	types := []string{"type_a", "value_b", "qweqew", "asdads"}
-
-	for i := 0; i < b.N; i++ {
-		//	tr := l.Start("span_name")
-		tr.Printw("some example message", "i", i, "type", types[i%len(types)])
-		//	tr.Finish()
-	}
-
-	b.SetBytes(full.Bytes.Load() / int64(b.N))
-	b.ReportMetric(float64(full.Bytes.Load())/float64(small.Bytes.Load()), "ratio")
+	t.Logf("compression ratio %v", dec.LenF()/enc.Buf.LenF())
 }
 
 const BlockSize, HTSize = 1024 * 1024, 16 * 1024
@@ -291,7 +218,7 @@ func BenchmarkCompressFile(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 
-	var c tlio.CountingIODiscard
+	var c ByteCounter
 	w := NewWriterHTSize(&c, BlockSize, HTSize)
 
 	//	b.Logf("block %x  ht %x (%x * %x)", len(w.block), len(w.ht)*int(unsafe.Sizeof(w.ht[0])), len(w.ht), unsafe.Sizeof(w.ht[0]))
@@ -314,7 +241,7 @@ func BenchmarkCompressFile(b *testing.B) {
 
 	//	b.Logf("total written: %x  %x", w.pos, w.pos/len(w.block))
 
-	b.ReportMetric(float64(written)/float64(c.Bytes.Load()), "ratio")
+	b.ReportMetric(float64(written)/float64(c), "ratio")
 	//	b.ReportMetric(float64(c.Operations)/float64(b.N), "writes/op")
 	b.SetBytes(int64(written / b.N))
 }
@@ -387,13 +314,28 @@ func loadTestFile(tb testing.TB, f string) (err error) {
 		return errors.Wrap(err, "open data file")
 	}
 
-	var d tlwire.Decoder
+	//	var d tlwire.Decoder
 	testOff = make([]int, 0, len(testData)/100)
 
 	var st int
 	for st < len(testData) {
 		testOff = append(testOff, st)
-		st = d.Skip(testData, st)
+
+		//	st = d.Skip(testData, st)
+
+		for { // a kinda tlwire.Decoder
+			st = nextIndex(st+1, testData,
+				[]byte{0xbf, 0x62, '_', 's', 0xcb, 0x50},
+				[]byte{0xbf, 0x62, '_', 't', 0xc2, 0x1b})
+
+			//	println(x-st, st, x, len(testData))
+
+			if testData[st-1] != 0xff {
+				continue
+			}
+
+			break
+		}
 	}
 	testsCount = len(testOff)
 	testOff = append(testOff, st)
@@ -422,32 +364,32 @@ func FuzzEazy(f *testing.F) {
 		[]byte("aaaaaaaaaaabaaaaaaaaaaaa"),
 	)
 
-	var ebuf, dbuf bytes.Buffer
+	var wbuf, rbuf bytes.Buffer
 	buf := make([]byte, 16)
 
-	e := NewWriterHTSize(&ebuf, 512, 32)
-	d := NewReader(&dbuf)
+	w := NewWriterHTSize(&wbuf, 512, 32)
+	r := NewReader(&rbuf)
 
 	f.Fuzz(func(t *testing.T, p0, p1, p2 []byte) {
-		e.Reset(e.Writer)
-		ebuf.Reset()
+		w.Reset(w.Writer)
+		wbuf.Reset()
 
 		for _, p := range [][]byte{p0, p1, p2} {
-			n, err := e.Write(p)
+			n, err := w.Write(p)
 			assert.NoError(t, err)
 			assert.Equal(t, len(p), n)
 		}
 
-		d.ResetBytes(ebuf.Bytes())
-		dbuf.Reset()
+		r.ResetBytes(wbuf.Bytes())
+		rbuf.Reset()
 
-		m, err := io.CopyBuffer(&dbuf, d, buf)
+		m, err := io.CopyBuffer(&rbuf, r, buf)
 		assert.NoError(t, err)
 		assert.Equal(t, len(p0)+len(p1)+len(p2), int(m))
 
 		i := 0
 		for _, p := range [][]byte{p0, p1, p2} {
-			assert.Equal(t, p, dbuf.Bytes()[i:i+len(p)])
+			assert.Equal(t, p, rbuf.Bytes()[i:i+len(p)])
 			i += len(p)
 		}
 
@@ -461,6 +403,33 @@ func FuzzEazy(f *testing.F) {
 			t.Logf("p%d\n%s", i, hex.Dump(p))
 		}
 
-		t.Logf("encoded dump\n%s", Dump(ebuf.Bytes()))
+		t.Logf("encoded dump\n%s", Dump(wbuf.Bytes()))
 	})
+}
+
+func (c *ByteCounter) Write(p []byte) (n int, err error) {
+	n = len(p)
+	*c += ByteCounter(len(p))
+
+	return
+}
+
+func nextIndex(st int, b []byte, s ...[]byte) (i int) {
+	for i = st; i < len(b); i++ {
+		for _, s := range s {
+			if i+len(s) < len(b) && bytes.Equal(b[i:i+len(s)], s) {
+				return i
+			}
+		}
+	}
+
+	return i
+}
+
+func min(x, y int) int {
+	if x < y {
+		return x
+	}
+
+	return y
 }

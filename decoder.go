@@ -6,8 +6,7 @@ import (
 
 	"github.com/nikandfor/errors"
 	"github.com/nikandfor/hacked/hfmt"
-
-	"github.com/nikandfor/tlog/low"
+	"github.com/nikandfor/hacked/low"
 )
 
 type (

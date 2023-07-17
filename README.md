@@ -19,7 +19,7 @@ Compression is based on the idea that logs contain repeating sequences of bytes,
 such as constant log messages, trace ids, keys in key-value pairs, similar values logged multiple times (client ip, request path).
 Repeating parts are encoded as pairs of length and offset of the previous occurrence.
 
-Writer block size is the latest stream part size where similar sequences are searched.
+Writer block size is the sliding window size, the latest stream part size where similar sequences are searched.
 Repeating similar messages should be at most block size far from each other to be better compressed.
 
 Stream is started with `eazy.FileMagic` so the file format can be detected.
