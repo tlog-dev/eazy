@@ -42,6 +42,11 @@ type (
 
 var eUnexpectedEOF = errors.NewNoCaller("need more")
 
+const (
+	legacy1 = "\x00\x03tlz\x00\x13000\x00\x20"
+	legacy2 = "\x00\x02eazy\x00\x08"
+)
+
 // NewReader creates new decompressor reading from r.
 func NewReader(r io.Reader) *Reader {
 	return &Reader{
@@ -153,6 +158,16 @@ func (d *Reader) read(p []byte, st int) (n, i int, err error) {
 }
 
 func (d *Reader) readTag(st int) (i int, err error) {
+	// skip zero padding
+	for st < len(d.b) && d.b[st] == 0 {
+		st++
+	}
+
+	st, err = d.checkLegacy(st)
+	if err != nil {
+		return st, err
+	}
+
 	tag, l, i, err := d.tag(d.b, st)
 	if err != nil {
 		return st, err
@@ -160,7 +175,7 @@ func (d *Reader) readTag(st int) (i int, err error) {
 
 	//	println("readTag", tag, l, st, i, d.i, len(d.b))
 
-	if tag == Literal && l == Meta {
+	if tag == Meta && l == 0 {
 		return d.continueMetaTag(i)
 	}
 
@@ -193,40 +208,6 @@ func (d *Reader) continueMetaTag(st int) (i int, err error) {
 		return st, eUnexpectedEOF
 	}
 
-	{ // legacy fallback
-		const legacy = "\x00\x03tlz\x00\x13000\x00\x20"
-
-		if len(d.b) < len(legacy)+1 && bytes.Equal(d.b, []byte(legacy)[:len(d.b)]) { //nolint:gocritic
-			return st, eUnexpectedEOF
-		}
-
-		if bytes.Equal(d.b[:len(legacy)], []byte(legacy)) {
-			i = len(legacy)
-
-			bs := int(d.b[i])
-			i++
-
-			bs = 1 << bs
-
-			if cap(d.block) >= bs {
-				d.block = d.block[:bs]
-
-				for i := 0; i < bs; {
-					i += copy(d.block[i:], zeros)
-				}
-			} else {
-				d.block = make([]byte, bs)
-			}
-
-			d.pos = 0
-			d.mask = bs - 1
-
-			d.state = 0
-
-			return i, nil
-		}
-	}
-
 	meta := d.b[i]
 	i++
 
@@ -256,22 +237,8 @@ func (d *Reader) continueMetaTag(st int) (i int, err error) {
 		}
 	case MetaReset:
 		bs := int(d.b[i])
-		bs = 1 << bs
 
-		if cap(d.block) >= bs {
-			d.block = d.block[:bs]
-
-			for i := 0; i < bs; {
-				i += copy(d.block[i:], zeros)
-			}
-		} else {
-			d.block = make([]byte, bs)
-		}
-
-		d.pos = 0
-		d.mask = bs - 1
-
-		d.state = 0
+		d.reset(bs)
 	default:
 		return st, errors.New("unsupported meta: %x", meta)
 	}
@@ -279,6 +246,62 @@ func (d *Reader) continueMetaTag(st int) (i int, err error) {
 	i += l
 
 	return i, nil
+}
+
+func (d *Reader) checkLegacy(st int) (int, error) {
+	check := func(legacy string, st int) (int, error) {
+		db := d.b[st:]
+
+		if len(db) < len(legacy)+1 && bytes.Equal(db, []byte(legacy)[:len(db)]) { //nolint:gocritic
+			return st, eUnexpectedEOF
+		}
+
+		if len(db) >= len(legacy)+1 && bytes.Equal(db[:len(legacy)], []byte(legacy)) { //nolint:gocritic
+			i := len(legacy)
+
+			bs := int(db[i])
+			i++
+
+			d.reset(bs)
+
+			return i, nil
+		}
+
+		return st, nil
+	}
+
+	i := st
+
+	i, err := check(legacy1, i)
+	if err != nil {
+		return i, err
+	}
+
+	i, err = check(legacy2, i)
+	if err != nil {
+		return i, err
+	}
+
+	return i, nil
+}
+
+func (d *Reader) reset(bs int) {
+	bs = 1 << bs
+
+	if cap(d.block) >= bs {
+		d.block = d.block[:bs]
+
+		for i := 0; i < bs; {
+			i += copy(d.block[i:], zeros)
+		}
+	} else {
+		d.block = make([]byte, bs)
+	}
+
+	d.pos = 0
+	d.mask = bs - 1
+
+	d.state = 0
 }
 
 func (d *Reader) roff(b []byte, st int) (off, i int, err error) {
@@ -443,6 +466,15 @@ func (w *Dumper) Write(p []byte) (i int, err error) {
 
 		st := i
 
+		for i < len(p) && p[i] == 0 {
+			i++
+		}
+
+		if i != st {
+			w.b = hfmt.Appendf(w.b, "pad  %4x\n", i-st)
+			continue
+		}
+
 		tag, l, i, err = w.d.tag(p, i)
 		if err != nil {
 			return st, err
@@ -451,7 +483,7 @@ func (w *Dumper) Write(p []byte) (i int, err error) {
 		//	println("loop", i, tag>>7, l)
 
 		switch {
-		case l == Meta:
+		case tag == Meta && l == 0:
 			if i == len(p) {
 				return st, eUnexpectedEOF
 			}
@@ -491,8 +523,6 @@ func (w *Dumper) Write(p []byte) (i int, err error) {
 			w.d.pos += int64(l)
 
 			w.b = hfmt.Appendf(w.b, "copy %4x  off %4x (%4x)\n", l, off, off+l)
-
-		//	off += l
 		default:
 			panic(tag)
 		}

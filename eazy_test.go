@@ -41,6 +41,8 @@ func TestFileMagic(t *testing.T) {
 	if assert.True(t, len(buf) >= len(FileMagic)) {
 		assert.Equal(t, FileMagic, string(buf[:len(FileMagic)]))
 	}
+
+	t.Logf("file header:\n%s", hex.Dump(buf))
 }
 
 func TestLiteral(t *testing.T) {
@@ -104,6 +106,8 @@ func TestCopy(t *testing.T) {
 	t.Logf("buf  pos %x ht %x\n%v", w.pos, w.ht, hex.Dump(w.block))
 	t.Logf("res\n%v", hex.Dump(buf[st:]))
 
+	t.Logf("res\n%v", Dump(buf))
+
 	r := &Reader{
 		b: buf,
 	}
@@ -158,6 +162,67 @@ func TestBug1(t *testing.T) {
 	n, err = d.Read(p)
 	assert.ErrorIs(t, err, io.EOF)
 	assert.Equal(t, 9, n)
+}
+
+func TestPadding(t *testing.T) {
+	const B = 32
+
+	var buf low.Buf
+
+	w := NewWriter(&buf, B, B>>1)
+
+	st := 0
+
+	n, err := w.Write([]byte("prefix_1234_suffix"))
+	assert.Equal(t, 18, n)
+	assert.NoError(t, err)
+
+	t.Logf("buf pos %x ht %x\n%v", w.pos, w.ht, hex.Dump(w.block))
+	t.Logf("res\n%v", hex.Dump(buf[st:]))
+
+	st = len(buf)
+
+	buf = append(buf, make([]byte, B-len(buf)%B)...)
+
+	n, err = w.Write([]byte("prefix_567_suffix"))
+	assert.Equal(t, 17, n)
+	assert.NoError(t, err)
+
+	t.Logf("buf  pos %x ht %x\n%v", w.pos, w.ht, hex.Dump(w.block))
+	t.Logf("res\n%v", hex.Dump(buf[st:]))
+
+	t.Logf("res\n%v", Dump(buf))
+
+	r := &Reader{
+		b: buf,
+	}
+
+	p := make([]byte, 100)
+
+	t.Logf("*** read back ***")
+
+	n, err = r.Read(p[:10])
+	assert.Equal(t, 10, n)
+	assert.NoError(t, err)
+	assert.Equal(t, []byte("prefix_123"), p[:n])
+
+	t.Logf("buf  pos %x\n%v", r.pos, hex.Dump(r.block))
+
+	n, err = r.Read(p[:10])
+	assert.Equal(t, 10, n)
+	assert.NoError(t, err)
+	assert.Equal(t, []byte("4_suffixpr"), p[:n])
+
+	t.Logf("buf  pos %x\n%v", r.pos, hex.Dump(r.block))
+
+	n, err = r.Read(p[:30])
+	assert.Equal(t, 15, n)
+	assert.Equal(t, io.EOF, err)
+	assert.Equal(t, []byte("efix_567_suffix"), p[:n])
+
+	t.Logf("buf  pos %x\n%v", r.pos, hex.Dump(r.block))
+
+	//	t.Logf("compression ratio: %.3f", float64(18+17)/float64(len(buf)))
 }
 
 func TestOnFile(t *testing.T) {

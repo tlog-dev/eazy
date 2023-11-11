@@ -42,6 +42,13 @@ const (
 
 	TagMask    = 0b1000_0000
 	TagLenMask = 0b0111_1111
+
+	// Padding can be safely added between any writes
+	// and will be skipped by Reader.
+	Padding = 0x00
+
+	// Meta is Copy tag with zero length.
+	Meta = Copy | 0 //nolint:staticcheck
 )
 
 // Tag lengths.
@@ -51,8 +58,6 @@ const (
 	Len4
 	Len2
 	Len1
-
-	Meta = 0 // Literal | Meta - means meta tag
 )
 
 // Offset lengths.
@@ -75,7 +80,7 @@ const (
 )
 
 // FileMagic is the first bytes in a compressed stream.
-const FileMagic = "\x00\x02eazy"
+const FileMagic = "\x80\x02eazy"
 
 var zeros = make([]byte, 1024)
 
@@ -125,7 +130,7 @@ func (w *Writer) ResetSize(wr io.Writer, block, htable int) {
 }
 
 func (w *Writer) init(bs, hs int) {
-	if (bs-1)&bs != 0 || bs < 32 {
+	if (bs-1)&bs != 0 || bs < 32 || bs > 1<<31 {
 		panic("block size must be a power of two")
 	}
 
@@ -309,11 +314,11 @@ func (w *Writer) appendReset(b []byte, block int) []byte {
 		bs++
 	}
 
-	return append(b, Literal|Meta, MetaReset|0, byte(bs)) //nolint:staticcheck
+	return append(b, Meta, MetaReset|0, byte(bs)) //nolint:staticcheck
 }
 
 func (w *Writer) appendMagic(b []byte) []byte {
-	return append(b, Literal|Meta, MetaMagic|2, 'e', 'a', 'z', 'y')
+	return append(b, Meta, MetaMagic|2, 'e', 'a', 'z', 'y')
 }
 
 func (w *Writer) appendLiteral(d []byte, st, end int) {
