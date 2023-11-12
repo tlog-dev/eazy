@@ -10,9 +10,9 @@ import (
 	"time"
 
 	//	"github.com/nikandfor/assert"
-	"github.com/nikandfor/errors"
 	"github.com/nikandfor/hacked/low"
 	"github.com/stretchr/testify/assert"
+	"tlog.app/go/errors"
 )
 
 type (

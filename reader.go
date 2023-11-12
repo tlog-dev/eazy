@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"io"
 
-	"github.com/nikandfor/errors"
 	"github.com/nikandfor/hacked/hfmt"
 	"github.com/nikandfor/hacked/low"
+	"tlog.app/go/errors"
 )
 
 type (
