@@ -1,8 +1,9 @@
-[![Documentation](https://pkg.go.dev/badge/github.com/nikandfor/eazy)](https://pkg.go.dev/github.com/nikandfor/eazy?tab=doc)
-[![Go workflow](https://github.com/nikandfor/eazy/actions/workflows/go.yml/badge.svg)](https://github.com/nikandfor/eazy/actions/workflows/go.yml)
-[![codecov](https://codecov.io/gh/nikandfor/eazy/tags/latest/graph/badge.svg)](https://codecov.io/gh/nikandfor/eazy)
-[![Go Report Card](https://goreportcard.com/badge/github.com/nikandfor/eazy)](https://goreportcard.com/report/github.com/nikandfor/eazy)
-![GitHub tag (latest SemVer)](https://img.shields.io/github/v/tag/nikandfor/eazy?sort=semver)
+[![Documentation](https://pkg.go.dev/badge/tlog.app/go/eazy)](https://pkg.go.dev/tlog.app/go/eazy?tab=doc)
+[![Go workflow](https://github.com/tlog-dev/eazy/actions/workflows/go.yml/badge.svg)](https://github.com/tlog-dev/eazy/actions/workflows/go.yml)
+[![CircleCI](https://circleci.com/gh/tlog-dev/eazy.svg?style=svg)](https://circleci.com/gh/tlog-dev/eazy)
+[![codecov](https://codecov.io/gh/tlog-dev/eazy/tags/latest/graph/badge.svg)](https://codecov.io/gh/tlog-dev/eazy)
+[![Go Report Card](https://goreportcard.com/badge/tlog.app/go/eazy)](https://goreportcard.com/report/tlog.app/go/eazy)
+![GitHub tag (latest SemVer)](https://img.shields.io/github/v/tag/tlog-dev/eazy?sort=semver)
 
 # eazy
 
