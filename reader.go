@@ -14,6 +14,8 @@ type (
 	Reader struct {
 		io.Reader
 
+		ver int
+
 		block []byte
 		mask  int
 		pos   int64 // stream position % len(block)
@@ -218,7 +220,7 @@ func (d *Reader) continueMetaTag(st int) (i int, err error) {
 			return st, eUnexpectedEOF
 		}
 
-		l = int(d.b[i])
+		l = 7 + int(d.b[i])
 		i++
 	} else {
 		l = 1 << l
@@ -239,6 +241,8 @@ func (d *Reader) continueMetaTag(st int) (i int, err error) {
 		bs := int(d.b[i])
 
 		d.reset(bs)
+	case MetaVer:
+		d.ver = int(d.b[i])
 	default:
 		return st, errors.New("unsupported meta: %x", meta)
 	}
@@ -304,54 +308,7 @@ func (d *Reader) reset(bs int) {
 	d.state = 0
 }
 
-func (d *Reader) roff(b []byte, st int) (off, i int, err error) {
-	if st >= len(b) {
-		return 0, st, eUnexpectedEOF
-	}
-
-	i = st
-
-	off = int(b[i])
-	i++
-
-	switch off {
-	case Off1:
-		if i+1 > len(b) {
-			return off, st, eUnexpectedEOF
-		}
-
-		off = int(b[i])
-		i++
-	case Off2:
-		if i+2 > len(b) {
-			return off, st, eUnexpectedEOF
-		}
-
-		off = int(b[i])<<8 | int(b[i+1])
-		i += 2
-	case Off4:
-		if i+4 > len(b) {
-			return off, st, eUnexpectedEOF
-		}
-
-		off = int(b[i])<<24 | int(b[i+1])<<16 | int(b[i+2])<<8 | int(b[i+3])
-		i += 4
-	case Off8:
-		if i+8 > len(b) {
-			return off, st, eUnexpectedEOF
-		}
-
-		off = int(b[i])<<56 | int(b[i+1])<<48 | int(b[i+2])<<40 | int(b[i+3])<<32 |
-			int(b[i+4])<<24 | int(b[i+5])<<16 | int(b[i+6])<<8 | int(b[i+7])
-		i += 8
-	default:
-		// off is embedded
-	}
-
-	return off, i, nil
-}
-
-func (d *Reader) tag(b []byte, st int) (tag, l, i int, err error) {
+func (d *Reader) tag0(b []byte, st int) (tag, l, i int, err error) {
 	if st >= len(b) {
 		return 0, 0, st, eUnexpectedEOF
 	}
@@ -399,6 +356,148 @@ func (d *Reader) tag(b []byte, st int) (tag, l, i int, err error) {
 	return tag, l, i, nil
 }
 
+func (d *Reader) roff0(b []byte, st int) (off, i int, err error) {
+	if st >= len(b) {
+		return 0, st, eUnexpectedEOF
+	}
+
+	i = st
+
+	off = int(b[i])
+	i++
+
+	switch off {
+	case Off1:
+		if i+1 > len(b) {
+			return off, st, eUnexpectedEOF
+		}
+
+		off = int(b[i])
+		i++
+	case Off2:
+		if i+2 > len(b) {
+			return off, st, eUnexpectedEOF
+		}
+
+		off = int(b[i])<<8 | int(b[i+1])
+		i += 2
+	case Off4:
+		if i+4 > len(b) {
+			return off, st, eUnexpectedEOF
+		}
+
+		off = int(b[i])<<24 | int(b[i+1])<<16 | int(b[i+2])<<8 | int(b[i+3])
+		i += 4
+	case Off8:
+		if i+8 > len(b) {
+			return off, st, eUnexpectedEOF
+		}
+
+		off = int(b[i])<<56 | int(b[i+1])<<48 | int(b[i+2])<<40 | int(b[i+3])<<32 |
+			int(b[i+4])<<24 | int(b[i+5])<<16 | int(b[i+6])<<8 | int(b[i+7])
+		i += 8
+	default:
+		// off is embedded
+	}
+
+	return off, i, nil
+}
+
+func (d *Reader) tag(b []byte, st int) (tag, l, i int, err error) {
+	if d.ver == 0 {
+		return d.tag0(b, st)
+	}
+
+	if st >= len(b) {
+		return 0, 0, st, eUnexpectedEOF
+	}
+
+	i = st
+
+	tag = int(b[i]) & TagMask
+	l = int(b[i]) & TagLenMask
+	i++
+
+	switch l {
+	case Len1:
+		if i+1 > len(b) {
+			return tag, l, st, eUnexpectedEOF
+		}
+
+		l = Len1 + int(b[i])
+		i++
+	case Len2:
+		if i+2 > len(b) {
+			return tag, l, st, eUnexpectedEOF
+		}
+
+		l = Len1 + 0xff
+		l += int(b[i])<<8 | int(b[i+1])
+		i += 2
+	case Len4:
+		if i+4 > len(b) {
+			return tag, l, st, eUnexpectedEOF
+		}
+
+		l = Len1 + 0xff + 0xffff
+		l += int(b[i])<<24 | int(b[i+1])<<16 | int(b[i+2])<<8 | int(b[i+3])
+		i += 4
+	case Len8:
+		panic("too big length")
+	default:
+		// l is embedded
+	}
+
+	return tag, l, i, nil
+}
+
+func (d *Reader) roff(b []byte, st int) (off, i int, err error) {
+	if d.ver == 0 {
+		return d.roff0(b, st)
+	}
+
+	if st >= len(b) {
+		return 0, st, eUnexpectedEOF
+	}
+
+	i = st
+
+	off = int(b[i])
+	i++
+
+	switch off {
+	case Off1:
+		if i+1 > len(b) {
+			return off, st, eUnexpectedEOF
+		}
+
+		off = Off1 + int(b[i])
+		i++
+	case Off2:
+		if i+2 > len(b) {
+			return off, st, eUnexpectedEOF
+		}
+
+		off = Off1 + 0xff
+		off += int(b[i])<<8 | int(b[i+1])
+		i += 2
+	case Off4:
+		if i+4 > len(b) {
+			return off, st, eUnexpectedEOF
+		}
+
+		off = Off1 + 0xff + 0xffff
+		off += int(b[i])<<24 | int(b[i+1])<<16 | int(b[i+2])<<8 | int(b[i+3])
+		i += 4
+	case Off8:
+		panic("too big offset")
+	default:
+		// off is embedded
+	}
+
+	return off, i, nil
+}
+
 func (d *Reader) more() (err error) {
 	if d.Reader == nil {
 		return io.EOF
@@ -439,6 +538,8 @@ func Dump(p []byte) string {
 		return err.Error()
 	}
 
+	_ = d.Close()
+
 	return string(d.b)
 }
 
@@ -450,7 +551,7 @@ func NewDumper(w io.Writer) *Dumper {
 }
 
 // Write implements io.Writer.
-func (w *Dumper) Write(p []byte) (i int, err error) {
+func (w *Dumper) Write(p []byte) (i int, err error) { //nolint:gocognit
 	w.b = w.b[:0]
 
 	var tag, l int
@@ -488,23 +589,27 @@ func (w *Dumper) Write(p []byte) (i int, err error) {
 				return st, eUnexpectedEOF
 			}
 
-			tag = int(p[i])
+			meta := int(p[i])
 			i++
 
-			l = tag &^ MetaTagMask
+			l = meta &^ MetaTagMask
 
 			if l == 7 {
 				if i == len(p) {
 					return st, eUnexpectedEOF
 				}
 
-				l = int(p[i])
+				l = 7 + int(p[i])
 				i++
 			} else {
 				l = 1 << l
 			}
 
-			w.b = hfmt.Appendf(w.b, "meta %2x %x  %q\n", tag>>3, l, p[i:i+l])
+			w.b = hfmt.Appendf(w.b, "meta %2x %x  %q\n", meta>>3, l, p[i:i+l])
+
+			if meta == MetaVer && l == 1 {
+				w.d.ver = int(p[i])
+			}
 
 			i += l
 		case tag == Literal:
@@ -535,4 +640,18 @@ func (w *Dumper) Write(p []byte) (i int, err error) {
 	}
 
 	return i, err
+}
+
+func (w *Dumper) Close() error {
+	i := 0
+
+	if w.GlobalOffset >= 0 {
+		w.b = hfmt.Appendf(w.b, "%6x  ", int(w.GlobalOffset)+i)
+	}
+
+	w.b = hfmt.Appendf(w.b, "%4x  ", i)
+
+	w.b = hfmt.Appendf(w.b, "%6x  ", w.d.pos)
+
+	return nil
 }

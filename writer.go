@@ -24,6 +24,8 @@ type (
 
 		ht  []uint32
 		hsh uint
+
+		ver int
 	}
 )
 
@@ -75,6 +77,7 @@ const (
 
 	MetaMagic = iota << 3 // 4: "eazy"
 	MetaReset             // 1: block_size_log
+	MetaVer               // 1: ver
 
 	MetaTagMask = 0b1111_1000 // tag | log(size)
 )
@@ -97,6 +100,7 @@ func NewWriter(wr io.Writer, block, htable int) *Writer {
 	w := &Writer{
 		Writer:      wr,
 		AppendMagic: true,
+		ver:         1,
 	}
 
 	w.init(block, htable)
@@ -117,6 +121,7 @@ func (w *Writer) reset() {
 	for i := 0; i < len(w.block); {
 		i += copy(w.block[i:], zeros)
 	}
+
 	for i := range w.ht {
 		w.ht[i] = 0
 	}
@@ -167,7 +172,7 @@ func (w *Writer) init(bs, hs int) {
 }
 
 // Write is io.Writer implementation.
-func (w *Writer) Write(p []byte) (done int, err error) { //nolint:gocognit
+func (w *Writer) Write(p []byte) (done int, err error) {
 	w.b = w.b[:0]
 
 	if w.pos == 0 {
@@ -177,7 +182,7 @@ func (w *Writer) Write(p []byte) (done int, err error) { //nolint:gocognit
 	start := int(w.pos)
 
 	for i := 0; i+4 < len(p); {
-		h := *(*uint32)(unsafe.Pointer(&p[i])) * 0x1e35a7bd >> w.hsh
+		h := w.hash(p, i)
 
 		pos := int(w.ht[h])
 		w.ht[h] = uint32(start + i)
@@ -274,7 +279,7 @@ func (w *Writer) Write(p []byte) (done int, err error) { //nolint:gocognit
 		w.appendCopy(st, end)
 		w.copyData(p, ist, iend)
 
-		h = *(*uint32)(unsafe.Pointer(&p[i+1])) * 0x1e35a7bd >> w.hsh
+		h = w.hash(p, i+1)
 		w.ht[h] = uint32(start + i + 1)
 
 		i = iend
@@ -298,27 +303,34 @@ func (w *Writer) Write(p []byte) (done int, err error) { //nolint:gocognit
 	return done, err
 }
 
+func (w *Writer) hash(p []byte, i int) uint32 {
+	return *(*uint32)(unsafe.Pointer(&p[i])) * 0x1e35a7bd >> w.hsh
+}
+
 func (w *Writer) appendHeader(b []byte) []byte {
 	if w.AppendMagic {
 		b = w.appendMagic(b)
 	}
+
+	b = append(b, Meta, MetaVer|0, byte(w.ver)) //nolint:staticcheck
 
 	b = w.appendReset(b, len(w.block))
 
 	return b
 }
 
+func (w *Writer) appendMagic(b []byte) []byte {
+	return append(b, Meta, MetaMagic|2, 'e', 'a', 'z', 'y')
+}
+
 func (w *Writer) appendReset(b []byte, block int) []byte {
 	bs := 0
+
 	for q := block; q != 1; q >>= 1 {
 		bs++
 	}
 
 	return append(b, Meta, MetaReset|0, byte(bs)) //nolint:staticcheck
-}
-
-func (w *Writer) appendMagic(b []byte) []byte {
-	return append(b, Meta, MetaMagic|2, 'e', 'a', 'z', 'y')
 }
 
 func (w *Writer) appendLiteral(d []byte, st, end int) {
@@ -339,7 +351,7 @@ func (w *Writer) copyData(d []byte, st, end int) {
 	}
 }
 
-func (w *Writer) appendTag(b []byte, tag byte, l int) []byte {
+func (w *Writer) appendTag0(b []byte, tag byte, l int) []byte {
 	switch {
 	case l < Len1:
 		return append(b, tag|byte(l))
@@ -354,7 +366,7 @@ func (w *Writer) appendTag(b []byte, tag byte, l int) []byte {
 	}
 }
 
-func (w *Writer) appendOff(b []byte, l int) []byte {
+func (w *Writer) appendOff0(b []byte, l int) []byte {
 	switch {
 	case l < Off1:
 		return append(b, byte(l))
@@ -367,6 +379,66 @@ func (w *Writer) appendOff(b []byte, l int) []byte {
 	default:
 		return append(b, Off8, byte(l>>56), byte(l>>48), byte(l>>40), byte(l>>32), byte(l>>24), byte(l>>16), byte(l>>8), byte(l))
 	}
+}
+
+func (w *Writer) appendTag(b []byte, tag byte, l int) []byte {
+	if w.ver == 0 {
+		return w.appendTag0(b, tag, l)
+	}
+
+	if l < Len1 {
+		return append(b, tag|byte(l))
+	}
+
+	l -= Len1
+
+	if l <= 0xff {
+		return append(b, tag|Len1, byte(l))
+	}
+
+	l -= 0xff
+
+	if l <= 0xffff {
+		return append(b, tag|Len2, byte(l>>8), byte(l))
+	}
+
+	l -= 0xffff
+
+	if l <= 0xffff_ffff {
+		return append(b, tag|Len4, byte(l>>24), byte(l>>16), byte(l>>8), byte(l))
+	}
+
+	panic("too big length")
+}
+
+func (w *Writer) appendOff(b []byte, l int) []byte {
+	if w.ver == 0 {
+		return w.appendOff0(b, l)
+	}
+
+	if l < Off1 {
+		return append(b, byte(l))
+	}
+
+	l -= Off1
+
+	if l <= 0xff {
+		return append(b, Off1, byte(l))
+	}
+
+	l -= 0xff
+
+	if l <= 0xffff {
+		return append(b, Off2, byte(l>>8), byte(l))
+	}
+
+	l -= 0xffff
+
+	if l <= 0xffff_ffff {
+		return append(b, Off4, byte(l>>24), byte(l>>16), byte(l>>8), byte(l))
+	}
+
+	panic("too big offset")
 }
 
 //nolint:unused,deadcode,goprintffuncname

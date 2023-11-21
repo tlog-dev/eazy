@@ -1,0 +1,106 @@
+run:
+  #modules-download-mode: readonly
+issues:
+  exclude:
+    #- "break_"
+  exclude-rules:
+    - path: "(.*)_test\\.go"
+      linters:
+        - goconst
+linters-settings:
+  govet:
+    check-shadowing: false
+  golint:
+    min-confidence: 0
+  gocognit:
+    min-complexity: 30
+  cyclop:
+    max-complexity: 30
+  maligned:
+    suggest-new: true
+  dupl:
+    threshold: 100
+  goconst:
+    min-len: 2
+    min-occurrences: 3
+  revive:
+    rules:
+      - name: unused-parameter
+        disabled: true
+  depguard:
+    rules:
+      main:
+        allow:
+          - $gostd
+          - github.com/beorn7/perks/quantile
+          - github.com/getsentry/sentry-go
+          - github.com/gin-gonic/gin
+          - github.com/nikandfor/cli
+          - github.com/nikandfor/hacked
+          - github.com/nikandfor/quantile
+          - github.com/opentracing/opentracing-go
+          - github.com/prometheus/client_golang
+          - github.com/prometheus/client_model
+          - github.com/stretchr/testify
+          - go.opentelemetry.io/otel
+          - golang.org/x
+          - gopkg.in/fsnotify.v1
+          - nikand.dev/go/json
+          - tlog.app/go/errors
+          - tlog.app/go/loc
+          - tlog.app/go/tlog
+  misspell:
+  lll:
+    line-length: 170
+  goimports:
+    local-prefixes: nikand.dev/go/json
+  prealloc:
+    simple: true
+    for-loops: true
+  gocritic:
+    enabled-tags:
+      - experimental
+      - performance
+      - style
+    disabled-checks:
+      - appendAssign
+      - builtinShadow
+      - commentedOutCode
+      - octalLiteral
+      - sloppyTestFuncName
+      - unnamedResult
+      - whyNoLint
+      - yodaStyleExpr
+
+linters:
+  enable-all: true
+  disable:
+    - exhaustive
+    - exhaustivestruct
+    - exhaustruct
+    - forcetypeassert
+    - funlen
+    - gci
+    - gochecknoglobals
+    - gochecknoinits
+    - godox
+    - goerr113
+    - golint
+    - gomnd
+    - ifshort
+    - ireturn
+    - nakedret
+    - nlreturn
+    - nonamedreturns
+    - nosnakecase
+    - paralleltest
+    - prealloc
+    - testifylint
+    - testpackage
+    - thelper
+    - unparam
+    - varnamelen
+    - whitespace
+    - wsl
+
+    - wrapcheck # for now

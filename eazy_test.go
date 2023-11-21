@@ -46,17 +46,23 @@ func TestFileMagic(t *testing.T) {
 }
 
 func TestLiteral(t *testing.T) {
+	t.Run("ver0", func(t *testing.T) { testLiteral(t, 0) })
+	t.Run("ver1", func(t *testing.T) { testLiteral(t, 1) })
+}
+
+func testLiteral(t *testing.T, ver int) {
 	const B = 32
 
 	var buf low.Buf
 
 	w := NewWriter(&buf, B, B>>1)
+	w.ver = ver
 
 	n, err := w.Write([]byte("very_first_message"))
 	assert.Equal(t, 18, n)
 	assert.NoError(t, err)
 
-	t.Logf("buf pos %x ht %x\n%v", w.pos, w.ht, hex.Dump(w.block))
+	t.Logf("buf pos %x  ht %x  block\n%v", w.pos, w.ht, hex.Dump(w.block))
 	t.Logf("res\n%v", hex.Dump(buf))
 	t.Logf("res\n%v", Dump(buf))
 
@@ -82,11 +88,17 @@ func TestLiteral(t *testing.T) {
 }
 
 func TestCopy(t *testing.T) {
+	t.Run("ver0", func(t *testing.T) { testCopy(t, 0) })
+	t.Run("ver1", func(t *testing.T) { testCopy(t, 1) })
+}
+
+func testCopy(t *testing.T, ver int) {
 	const B = 32
 
 	var buf low.Buf
 
 	w := NewWriter(&buf, B, B>>1)
+	w.ver = ver
 
 	st := 0
 
@@ -148,7 +160,7 @@ func TestBug1(t *testing.T) {
 
 	//	tl.Printw("first")
 
-	_, _ = b.Write([]byte{Literal | Meta, MetaReset | 0, 4}) //nolint:staticcheck
+	_, _ = b.Write([]byte{Meta, MetaReset | 0, 4}) //nolint:staticcheck
 	_, _ = b.Write([]byte{Literal | 3, 0x94, 0xa8, 0xfb, Copy | 9})
 
 	n, err := d.Read(p)
@@ -226,6 +238,11 @@ func TestPadding(t *testing.T) {
 }
 
 func TestOnFile(t *testing.T) {
+	t.Run("ver0", func(t *testing.T) { testOnFile(t, 0) })
+	t.Run("ver1", func(t *testing.T) { testOnFile(t, 1) })
+}
+
+func testOnFile(t *testing.T, ver int) {
 	err := loadTestFile(t, *fileFlag)
 	if err != nil {
 		t.Skipf("loading data: %v", err)
@@ -234,17 +251,25 @@ func TestOnFile(t *testing.T) {
 	var enc low.BufReader
 	var buf []byte
 
-	w := NewWriter(&enc, 512, 256)
+	w := NewWriter(&enc, 1024, 512)
+	w.ver = ver
+
 	r := NewReader(&enc)
+
+	var dumpb low.Buf
+
+	d := NewDumper(nil)
 
 	for i := 0; i < testsCount; i++ {
 		msg := testData[testOff[i]:testOff[i+1]]
+
+		wst := len(enc.Buf)
 
 		n, err := w.Write(msg)
 		assert.NoError(t, err)
 		assert.Equal(t, len(msg), n)
 
-		for n > len(buf) {
+		for n > cap(buf) {
 			buf = append(buf[:cap(buf)], 0, 0, 0, 0, 0, 0, 0, 0)
 		}
 
@@ -255,6 +280,13 @@ func TestOnFile(t *testing.T) {
 		assert.Equal(t, msg, buf[:n])
 
 		if t.Failed() {
+			d.Writer = &dumpb
+		}
+
+		_, _ = d.Write(enc.Buf[wst:])
+
+		if t.Failed() {
+			t.Logf("msg %d encoded dump:\n%s", i, dumpb)
 			break
 		}
 	}
