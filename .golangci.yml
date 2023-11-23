@@ -7,6 +7,7 @@ issues:
     - path: "(.*)_test\\.go"
       linters:
         - goconst
+        - gosec
 linters-settings:
   govet:
     check-shadowing: false

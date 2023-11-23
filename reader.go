@@ -136,13 +136,14 @@ func (d *Reader) read(p []byte, st int) (n, i int, err error) {
 		end = len(p)
 	}
 
-	if d.state == 'l' {
+	switch {
+	case d.state == 'l':
 		end = copy(p[:end], d.b[i:])
 		i += end
-	} else if int64(d.off+d.len) <= d.pos {
+	case int64(d.off+d.len) <= d.pos:
 		end = copy(p[:end], d.block[d.off&d.mask:])
 		d.off += end
-	} else {
+	default:
 		rlen := int(d.pos) - d.off
 		if rlen == 0 {
 			panic("zero run length")
@@ -228,9 +229,9 @@ func (d *Reader) continueMetaTag(st int) (i int, err error) {
 	meta := d.b[i]
 	i++
 
-	l := metaLen(d.b, i, meta)
+	l, i := metaLen(d.b, i, meta)
 	//	println("meta", st-1, i, meta, l, i+l, len(d.b))
-	if l == 0 || i+l > len(d.b) {
+	if l < 0 || i+l > len(d.b) {
 		return st, eUnexpectedEOF
 	}
 
@@ -575,7 +576,7 @@ func NewDumper(w io.Writer) *Dumper {
 }
 
 // Write implements io.Writer.
-func (w *Dumper) Write(p []byte) (i int, err error) { //nolint:gocognit
+func (w *Dumper) Write(p []byte) (i int, err error) {
 	w.b = w.b[:0]
 
 	var tag, l int
@@ -616,8 +617,8 @@ func (w *Dumper) Write(p []byte) (i int, err error) { //nolint:gocognit
 			meta := p[i]
 			i++
 
-			l = metaLen(p, i, meta)
-			if l == 0 {
+			l, i = metaLen(p, i, meta)
+			if l < 0 {
 				return st, eUnexpectedEOF
 			}
 
@@ -672,12 +673,13 @@ func (w *Dumper) Close() error {
 	return nil
 }
 
-func metaLen(p []byte, i int, meta byte) int {
-	l := int(meta &^ MetaTagMask)
+func metaLen(p []byte, st int, meta byte) (l, i int) {
+	i = st
+	l = int(meta &^ MetaTagMask)
 
 	if l == 7 {
 		if i == len(p) {
-			return 0
+			return -1, st
 		}
 
 		l = 7 + int(p[i])
@@ -686,5 +688,5 @@ func metaLen(p []byte, i int, meta byte) int {
 		l = 1 << l
 	}
 
-	return l
+	return l, i
 }

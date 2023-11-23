@@ -191,33 +191,7 @@ func (w *Writer) Write(p []byte) (done int, err error) {
 
 		// runlen encoding
 		if st := pos - (start + done); st >= 0 && i > done+st && w.ver >= 1 {
-			st += done
-			j := 0
-
-			for i+j < len(p) && p[st+j] == p[i+j] {
-				j++
-			}
-
-			//	dpr("runlen %4x %4x %4x %4x\n", done, st, i, j)
-
-			if j <= 4 {
-				i++
-				continue
-			}
-
-			iend := i + j
-
-			w.appendLiteral(p, done, i)
-			w.copyData(p, done, i)
-
-			w.b = w.appendTag(w.b, Copy, j)
-			w.b = append(w.b, OffLong)
-			w.b = w.appendOff(w.b, i-st)
-
-			w.copyData(p, i, iend)
-
-			i = iend
-			done = iend
+			done, i = w.writeRunlen(p, done, done+st, i)
 
 			continue
 		}
@@ -274,14 +248,12 @@ func (w *Writer) Write(p []byte) (done int, err error) {
 			//	dpr("first\n")
 			end -= diff
 			iend -= diff
-			bend -= diff
 		}
 
 		if diff := (end - len(w.block)) - blit; diff > 0 {
 			//	dpr("second\n")
 			end -= diff
 			iend -= diff
-			bend -= diff
 		}
 
 		if end-st <= 4 {
@@ -325,6 +297,33 @@ func (w *Writer) Write(p []byte) (done int, err error) {
 	}
 
 	return done, err
+}
+
+func (w *Writer) writeRunlen(p []byte, done, st, i int) (nextdone, iend int) {
+	j := 0
+
+	for i+j < len(p) && p[st+j] == p[i+j] {
+		j++
+	}
+
+	//	dpr("runlen %4x %4x %4x %4x\n", done, st, i, j)
+
+	if j <= 4 {
+		return done, i + 1
+	}
+
+	iend = i + j
+
+	w.appendLiteral(p, done, i)
+	w.copyData(p, done, i)
+
+	w.b = w.appendTag(w.b, Copy, j)
+	w.b = append(w.b, OffLong)
+	w.b = w.appendOff(w.b, i-st)
+
+	w.copyData(p, i, iend)
+
+	return iend, iend
 }
 
 func (w *Writer) hash(p []byte, i int) uint32 {
