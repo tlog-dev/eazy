@@ -300,28 +300,48 @@ func (w *Writer) Write(p []byte) (done int, err error) {
 }
 
 func (w *Writer) writeRunlen(p []byte, done, st, i int) (nextdone, iend int) {
-	j := 0
+	jf := 0
 
-	for i+j < len(p) && p[st+j] == p[i+j] {
-		j++
+	for i+jf < len(p) && p[st+jf] == p[i+jf] {
+		jf++
 	}
 
-	//	dpr("runlen %4x %4x %4x %4x\n", done, st, i, j)
+	jb := -1
 
-	if j <= 4 {
+	for st+jb >= 0 && i+jb >= done && p[st+jb] == p[i+jb] {
+		jb--
+	}
+
+	jb++
+
+	if jf-jb <= 4 {
 		return done, i + 1
 	}
 
-	iend = i + j
+	if i-st > len(w.block) {
+		//	dpr("cut %4x %4x %4x %4x %4x\n", done, st, i, jb, jf)
 
-	w.appendLiteral(p, done, i)
-	w.copyData(p, done, i)
+		diff := st - done
 
-	w.b = w.appendTag(w.b, Copy, j)
+		w.appendLiteral(p, done, i-diff)
+		w.copyData(p, done, i-diff)
+
+		return i - diff, i - diff
+	}
+
+	//	dpr("runlen %4x %4x %4x %4x %4x\n", done, st, i, jb, jf)
+
+	ist := i + jb
+	iend = i + jf
+
+	w.appendLiteral(p, done, ist)
+	w.copyData(p, done, ist)
+
+	w.b = w.appendTag(w.b, Copy, iend-ist)
 	w.b = append(w.b, OffLong)
 	w.b = w.appendOff(w.b, i-st)
 
-	w.copyData(p, i, iend)
+	w.copyData(p, ist, iend)
 
 	return iend, iend
 }

@@ -149,8 +149,12 @@ func (d *Reader) read(p []byte, st int) (n, i int, err error) {
 			panic("zero run length")
 		}
 
-		for j := 0; j < rlen; {
-			j += copy(p[j:rlen], d.block[(d.off+j)&d.mask:])
+		if end > rlen {
+			end = rlen
+		}
+
+		for j := 0; j < end; {
+			j += copy(p[j:end], d.block[(d.off+j)&d.mask:])
 		}
 
 		for j := rlen; j < end; {

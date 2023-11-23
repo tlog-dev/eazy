@@ -289,7 +289,7 @@ func TestIntersectionShort(t *testing.T) {
 func testIntersection(t *testing.T, msg2f func(rnd *rand.Rand, msg []byte) []byte) {
 	rnd := rand.New(rand.NewSource(0))
 
-	var enc low.BufReader
+	var enc low.Buf
 
 	w := NewWriter(&enc, 1024, 512)
 
@@ -313,7 +313,7 @@ func testIntersection(t *testing.T, msg2f func(rnd *rand.Rand, msg []byte) []byt
 
 	// read
 
-	r := NewReaderBytes(enc.Buf)
+	r := NewReaderBytes(enc)
 
 	ll := len(msg) + len(msg2)
 	res := make([]byte, ll+10)
@@ -325,7 +325,7 @@ func testIntersection(t *testing.T, msg2f func(rnd *rand.Rand, msg []byte) []byt
 	assert.Equal(t, msg, res[:len(msg)])
 	assert.Equal(t, msg2, res[len(msg):ll])
 
-	t.Logf("dump\n%s", Dump(enc.Buf))
+	t.Logf("dump\n%s", Dump(enc))
 }
 
 func TestRunlenDecoder(t *testing.T) {
@@ -387,6 +387,83 @@ func TestRunlenEncoder(t *testing.T) {
 	if !assert.Equal(t, Dump(exp), Dump(b)) {
 		t.Logf("dump\n%s", Dump(b))
 		return
+	}
+}
+
+func TestGiantLiteral(t *testing.T) {
+	t.Run("NoCopies", func(t *testing.T) {
+		testGiantLiteral(t, func(rnd *rand.Rand, bs int) []byte {
+			msg := make([]byte, 2*bs)
+
+			for i := range msg {
+				msg[i] = ' ' + byte(rnd.Intn(0x78-0x20))
+			}
+
+			return msg
+		})
+	})
+
+	t.Run("LongCopy", func(t *testing.T) {
+		testGiantLiteral(t, func(rnd *rand.Rand, bs int) []byte {
+			msg := make([]byte, 2*bs)
+
+			for i := range msg {
+				msg[i] = ' ' + byte(rnd.Intn(0x78-0x20))
+			}
+
+			cp := "0123456789abcdefgh"
+
+			copy(msg, cp)
+			copy(msg[len(msg)-len(cp):], cp)
+
+			return msg
+		})
+	})
+
+	t.Run("ShortCopy", func(t *testing.T) {
+		testGiantLiteral(t, func(rnd *rand.Rand, bs int) []byte {
+			msg := make([]byte, 2*bs)
+
+			for i := range msg {
+				msg[i] = ' ' + byte(rnd.Intn(0x78-0x20))
+			}
+
+			cp := "0123456789abcdefgh"
+
+			copy(msg, cp)
+			copy(msg[len(msg)-len(cp):], cp)
+
+			copy(msg[len(msg)-bs+3:], cp)
+
+			return msg
+		})
+	})
+}
+
+func testGiantLiteral(t *testing.T, f func(rnd *rand.Rand, bs int) []byte) {
+	var b low.Buf
+
+	rnd := rand.New(rand.NewSource(0))
+
+	w := NewWriter(&b, 1024, 512)
+	msg := f(rnd, len(w.block))
+
+	n, err := w.Write(msg)
+	assert.NoError(t, err)
+	assert.Equal(t, len(msg), n)
+
+	t.Logf("dump\n%s", Dump(b))
+
+	r := NewReaderBytes(b)
+
+	p := make([]byte, len(msg))
+
+	n, err = r.Read(p)
+	assert.NoError(t, err)
+	assert.Equal(t, len(p), n)
+
+	if !assert.True(t, bytes.Equal(msg, p)) {
+		assert.Equal(t, msg, p)
 	}
 }
 
