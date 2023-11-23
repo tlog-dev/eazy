@@ -69,6 +69,8 @@ const (
 	Off4
 	Off2
 	Off1
+
+	OffLong = Off8
 )
 
 // Meta tags.

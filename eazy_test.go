@@ -152,6 +152,29 @@ func testCopy(t *testing.T, ver int) {
 	//	t.Logf("compression ratio: %.3f", float64(18+17)/float64(len(buf)))
 }
 
+func TestRunlen(t *testing.T) {
+	var b low.BufReader
+
+	p := make([]byte, 1000)
+	d := NewReader(&b)
+
+	_, _ = b.Write([]byte{Meta, MetaReset | 0, 4}) //nolint:staticcheck
+	_, _ = b.Write([]byte{Meta, MetaVer | 0, 1})   //nolint:staticcheck
+	_, _ = b.Write([]byte{Literal | 1, 'a', Copy | 5, OffLong, 1})
+
+	n, err := d.Read(p)
+	assert.ErrorIs(t, err, io.EOF)
+	assert.Equal(t, 6, n)
+	assert.Equal(t, []byte("aaaaaa"), p[:n])
+
+	_, _ = b.Write([]byte{Literal | 2, 'a', 'b', Copy | 5, OffLong, 2})
+
+	n, err = d.Read(p)
+	assert.ErrorIs(t, err, io.EOF)
+	assert.Equal(t, 7, n)
+	assert.Equal(t, []byte("abababa"), p[:n])
+}
+
 func TestBug1(t *testing.T) {
 	var b bytes.Buffer
 

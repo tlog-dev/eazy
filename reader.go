@@ -18,7 +18,7 @@ type (
 
 		block []byte
 		mask  int
-		pos   int64 // stream position % len(block)
+		pos   int64 // stream position
 
 		// current tag
 		state    byte
@@ -27,7 +27,7 @@ type (
 		// input
 		b    []byte
 		i    int
-		boff int64 // input stream offset to b[0]
+		boff int64 // buffer b offset in the input stream
 	}
 
 	// Dumper is a debug printer for compressed data.
@@ -139,8 +139,20 @@ func (d *Reader) read(p []byte, st int) (n, i int, err error) {
 	if d.state == 'l' {
 		end = copy(p[:end], d.b[i:])
 		i += end
-	} else {
+	} else if int64(d.off+d.len) <= d.pos {
 		end = copy(p[:end], d.block[d.off&d.mask:])
+		d.off += end
+	} else {
+		rlen := int(d.pos) - d.off
+
+		for j := 0; j < rlen; {
+			j += copy(p[j:rlen], d.block[(d.off+j)&d.mask:])
+		}
+
+		for j := rlen; j < end; {
+			j += copy(p[j:end], p[:rlen])
+		}
+
 		d.off += end
 	}
 
@@ -186,12 +198,12 @@ func (d *Reader) readTag(st int) (i int, err error) {
 		d.state = 'l'
 		d.len = l
 	case Copy:
-		d.off, i, err = d.roff(d.b, i)
+		d.off, i, err = d.roff(d.b, i, l)
 		if err != nil {
 			return st, err
 		}
 
-		d.off = int(d.pos) - d.off - l
+		d.off = int(d.pos) - d.off
 
 		d.state = 'c'
 		d.len = l
@@ -356,7 +368,7 @@ func (d *Reader) tag0(b []byte, st int) (tag, l, i int, err error) {
 	return tag, l, i, nil
 }
 
-func (d *Reader) roff0(b []byte, st int) (off, i int, err error) {
+func (d *Reader) roff0(b []byte, st, l int) (off, i int, err error) {
 	if st >= len(b) {
 		return 0, st, eUnexpectedEOF
 	}
@@ -399,6 +411,8 @@ func (d *Reader) roff0(b []byte, st int) (off, i int, err error) {
 	default:
 		// off is embedded
 	}
+
+	off += l
 
 	return off, i, nil
 }
@@ -451,19 +465,31 @@ func (d *Reader) tag(b []byte, st int) (tag, l, i int, err error) {
 	return tag, l, i, nil
 }
 
-func (d *Reader) roff(b []byte, st int) (off, i int, err error) {
+func (d *Reader) roff(b []byte, st, l int) (off, i int, err error) {
 	if d.ver == 0 {
-		return d.roff0(b, st)
+		return d.roff0(b, st, l)
 	}
 
-	if st >= len(b) {
+	var long bool
+	i = st
+
+	if i == len(b) {
 		return 0, st, eUnexpectedEOF
 	}
 
-	i = st
-
 	off = int(b[i])
 	i++
+
+	long = off == OffLong
+
+	if long && i == len(b) {
+		return 0, st, eUnexpectedEOF
+	}
+
+	if long {
+		off = int(b[i])
+		i++
+	}
 
 	switch off {
 	case Off1:
@@ -493,6 +519,10 @@ func (d *Reader) roff(b []byte, st int) (off, i int, err error) {
 		panic("too big offset")
 	default:
 		// off is embedded
+	}
+
+	if !long {
+		off += l
 	}
 
 	return off, i, nil
@@ -620,14 +650,14 @@ func (w *Dumper) Write(p []byte) (i int, err error) { //nolint:gocognit
 		case tag == Copy:
 			var off int
 
-			off, i, err = w.d.roff(p, i)
+			off, i, err = w.d.roff(p, i, l)
 			if err != nil {
 				return st, err
 			}
 
 			w.d.pos += int64(l)
 
-			w.b = hfmt.Appendf(w.b, "copy %4x  off %4x (%4x)\n", l, off, off+l)
+			w.b = hfmt.Appendf(w.b, "copy %4x  off %4x\n", l, off)
 		default:
 			panic(tag)
 		}
