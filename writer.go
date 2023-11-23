@@ -183,120 +183,128 @@ func (w *Writer) Write(p []byte) (done int, err error) {
 
 	start := int(w.pos)
 
-	for i := 0; i+4 < len(p); {
+	for i := 0; i+4 <= len(p); {
 		h := w.hash(p, i)
 
 		pos := int(w.ht[h])
 		w.ht[h] = uint32(start + i)
 
-		var iend int
-
-		if pos >= int(w.pos) && i != done && w.ver >= 1 {
+		// runlen encoding
+		if st := pos - (start + done); st >= 0 && i > done+st && w.ver >= 1 {
+			st += done
 			j := 0
 
-			for i+j < len(p) && p[done+j] == p[i+j] {
+			for i+j < len(p) && p[st+j] == p[i+j] {
 				j++
 			}
+
+			//	dpr("runlen %4x %4x %4x %4x\n", done, st, i, j)
 
 			if j <= 4 {
 				i++
 				continue
 			}
 
-			iend = i + j
+			iend := i + j
 
 			w.appendLiteral(p, done, i)
 			w.copyData(p, done, i)
 
 			w.b = w.appendTag(w.b, Copy, j)
 			w.b = append(w.b, OffLong)
-			w.b = w.appendOff(w.b, i-done)
+			w.b = w.appendOff(w.b, i-st)
 
 			w.copyData(p, i, iend)
-		} else {
 
-			// extend backward
+			i = iend
+			done = iend
 
-			ist := i - 1
-			st := pos - 1
-
-			for ist >= done && p[ist] == w.block[st&w.mask] {
-				ist--
-				st--
-			}
-
-			ist++
-			st++
-
-			// extend forward
-
-			iend = i
-			end := pos
-
-			for iend < len(p) && p[iend] == w.block[end&w.mask] {
-				iend++
-				end++
-			}
-
-			// check overflows
-
-			// Window               p arg
-			//
-			// xxxyyy___ccc____     xxxyyy // xxx - literal, yyy duplicate
-			// ^  ^  ^  ^  ^        ^
-			// |  |  |  |  ' - end  ' - w.pos
-			// |  |  |  ' - st
-			// |  |  ' - bend
-			// |  ' - bst
-			// ' - blit
-			//
-			// Cases:
-			// _________ccc____ // no intersections mod len(w.block)
-			// _____ccc________ // ccc intersects yyy
-			// c_____________cc // ccc intersects xxx
-			// _______________c // yyy is repetition of c
-			//
-
-			blit := int(w.pos) - len(w.block)
-			//	bst := blit + (ist - done)
-			bend := blit + (iend - done)
-
-			//	dpr("cmp %4x %4x  %2x  pos %4x %x  hash %x\n", st, end, i, pos, w.pos, h)
-
-			if diff := bend - st; diff > 0 {
-				//	dpr("first\n")
-				end -= diff
-				iend -= diff
-				bend -= diff
-			}
-
-			if diff := (end - len(w.block)) - blit; diff > 0 {
-				//	dpr("second\n")
-				end -= diff
-				iend -= diff
-				bend -= diff
-			}
-
-			if end-st <= 4 {
-				i++
-				continue
-			}
-
-			if done < ist {
-				w.appendLiteral(p, done, ist)
-				w.copyData(p, done, ist)
-			}
-
-			if int(w.pos)-st > len(w.block) {
-				panic("wtf")
-			}
-
-			w.appendCopy(st, end)
-			w.copyData(p, ist, iend)
+			continue
 		}
 
-		h = w.hash(p, i+1)
-		w.ht[h] = uint32(start + i + 1)
+		// extend backward
+
+		ist := i - 1
+		st := pos - 1
+
+		for ist >= done && p[ist] == w.block[st&w.mask] {
+			ist--
+			st--
+		}
+
+		ist++
+		st++
+
+		// extend forward
+
+		iend := i
+		end := pos
+
+		for iend < len(p) && p[iend] == w.block[end&w.mask] {
+			iend++
+			end++
+		}
+
+		// check overflows
+
+		// Window               p arg
+		//
+		// xxxyyy___ccc____     xxxyyy // xxx - literal, yyy duplicate
+		// ^  ^  ^  ^  ^        ^
+		// |  |  |  |  ' - end  ' - w.pos
+		// |  |  |  ' - st
+		// |  |  ' - bend
+		// |  ' - bst
+		// ' - blit
+		//
+		// Cases:
+		// _________ccc____ // no intersections mod len(w.block)
+		// _____ccc________ // ccc intersects yyy
+		// c_____________cc // ccc intersects xxx
+		// _______________c // yyy is repetition of c
+		//
+
+		blit := int(w.pos) - len(w.block)
+		//	bst := blit + (ist - done)
+		bend := blit + (iend - done)
+
+		//	dpr("cmp %4x %4x  %2x  pos %4x %x  hash %x\n", st, end, i, pos, w.pos, h)
+
+		if diff := bend - st; diff > 0 {
+			//	dpr("first\n")
+			end -= diff
+			iend -= diff
+			bend -= diff
+		}
+
+		if diff := (end - len(w.block)) - blit; diff > 0 {
+			//	dpr("second\n")
+			end -= diff
+			iend -= diff
+			bend -= diff
+		}
+
+		if end-st <= 4 {
+			i++
+			continue
+		}
+
+		if done < ist {
+			w.appendLiteral(p, done, ist)
+			w.copyData(p, done, ist)
+		}
+
+		if int(w.pos)-st > len(w.block) {
+			panic("too big offset")
+		}
+
+		w.appendCopy(st, end)
+		w.copyData(p, ist, iend)
+
+		if i+4 < len(p) {
+			h = w.hash(p, i+1)
+			w.ht[h] = uint32(start + i + 1)
+		}
 
 		i = iend
 		done = iend

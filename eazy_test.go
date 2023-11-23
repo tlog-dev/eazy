@@ -73,9 +73,7 @@ func testLiteral(t *testing.T, ver int) {
 	t.Logf("res\n%v", hex.Dump(buf))
 	t.Logf("res\n%v", Dump(buf))
 
-	r := &Reader{
-		b: buf,
-	}
+	r := NewReaderBytes(buf)
 
 	p := make([]byte, 100)
 
@@ -361,12 +359,6 @@ func TestRunlenEncoder(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, 15, n)
 
-	n, err = w.Write(make([]byte, 0x1005))
-	assert.NoError(t, err)
-	assert.Equal(t, 0x1005, n)
-
-	enclen := (0x1005 - 1) - Len1 - 0xff
-
 	var exp low.Buf
 
 	n, err = NewWriter(&exp, 128, 16).Write([]byte{0})
@@ -376,12 +368,25 @@ func TestRunlenEncoder(t *testing.T) {
 	_, _ = exp.Write([]byte{Literal | 1, 'a', Copy | 5, OffLong, 1})
 	_, _ = exp.Write([]byte{Literal | 2, 'b', 'c', Copy | 5, OffLong, 2})
 	_, _ = exp.Write([]byte{Literal | 2, 'x', 'x'})
+
+	if !assert.Equal(t, Dump(exp), Dump(b)) {
+		t.Logf("dump\n%s", Dump(b))
+		return
+	}
+
+	//
+
+	n, err = w.Write(make([]byte, 0x1005))
+	assert.NoError(t, err)
+	assert.Equal(t, 0x1005, n)
+
+	enclen := (0x1005 - 1) - Len1 - 0xff
+
 	_, _ = exp.Write([]byte{Literal | 1, 0, Copy | Len2, byte(enclen >> 8), byte(enclen), OffLong, 1})
 
-	assert.Equal(t, Dump(exp), Dump(b))
-
-	if t.Failed() {
+	if !assert.Equal(t, Dump(exp), Dump(b)) {
 		t.Logf("dump\n%s", Dump(b))
+		return
 	}
 }
 
@@ -417,19 +422,30 @@ func testOnFile(t *testing.T, ver int) {
 
 		wst := len(enc.Buf)
 
-		n, err := w.Write(msg)
-		assert.NoError(t, err)
-		assert.Equal(t, len(msg), n)
+		func() {
+			defer func() {
+				p := recover()
+				if p == nil {
+					return
+				}
 
-		for n > cap(buf) {
-			buf = append(buf[:cap(buf)], 0, 0, 0, 0, 0, 0, 0, 0)
-		}
+				t.Errorf("panic: %v", p)
+			}()
 
-		n, err = r.Read(buf[:n])
-		assert.NoError(t, err)
-		assert.Equal(t, len(msg), n)
+			n, err := w.Write(msg)
+			assert.NoError(t, err)
+			assert.Equal(t, len(msg), n)
 
-		assert.Equal(t, msg, buf[:n])
+			for n > cap(buf) {
+				buf = append(buf[:cap(buf)], 0, 0, 0, 0, 0, 0, 0, 0)
+			}
+
+			n, err = r.Read(buf[:n])
+			assert.NoError(t, err)
+			assert.Equal(t, len(msg), n)
+
+			assert.Equal(t, msg, buf[:n])
+		}()
 
 		if t.Failed() {
 			d.Writer = &dumpb
@@ -668,15 +684,11 @@ func FuzzEazy(f *testing.F) {
 		[]byte("aaaaaaaaaaabaaaaaaaaaaaa"),
 	)
 
-	var wbuf, rbuf bytes.Buffer
-	buf := make([]byte, 16)
-
-	w := NewWriter(&wbuf, 512, 32)
-	r := NewReader(&rbuf)
-
 	f.Fuzz(func(t *testing.T, p0, p1, p2 []byte) {
-		w.Reset(w.Writer)
-		wbuf.Reset()
+		var wbuf, rbuf bytes.Buffer
+		buf := make([]byte, 16)
+
+		w := NewWriter(&wbuf, 512, 32)
 
 		for _, p := range [][]byte{p0, p1, p2} {
 			n, err := w.Write(p)
@@ -684,8 +696,18 @@ func FuzzEazy(f *testing.F) {
 			assert.Equal(t, len(p), n)
 		}
 
-		r.ResetBytes(wbuf.Bytes())
-		rbuf.Reset()
+		defer func() {
+			p := recover()
+			if p == nil {
+				return
+			}
+
+			t.Logf("encoded dump\n%s", Dump(wbuf.Bytes()))
+
+			panic(p)
+		}()
+
+		r := NewReaderBytes(wbuf.Bytes())
 
 		m, err := io.CopyBuffer(&rbuf, r, buf)
 		assert.NoError(t, err)
