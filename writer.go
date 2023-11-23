@@ -76,8 +76,8 @@ const (
 	// len: 1 2 4 8  16 32 64 Len1
 
 	MetaMagic = iota << 3 // 4: "eazy"
-	MetaReset             // 1: block_size_log
 	MetaVer               // 1: ver
+	MetaReset             // 1: block_size_log
 
 	MetaTagMask = 0b1111_1000 // tag | log(size)
 )
