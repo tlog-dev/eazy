@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"flag"
 	"io"
+	"math/rand"
 	"os"
 	"testing"
 	"time"
@@ -12,6 +13,7 @@ import (
 	//	"github.com/nikandfor/assert"
 	"github.com/nikandfor/hacked/low"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"tlog.app/go/errors"
 )
 
@@ -35,7 +37,7 @@ func TestFileMagic(t *testing.T) {
 
 	w := NewWriter(&buf, MiB, 512)
 
-	_, err := w.Write([]byte{})
+	_, err := w.Write([]byte{0})
 	assert.NoError(t, err)
 
 	if assert.True(t, len(buf) >= len(FileMagic)) {
@@ -46,8 +48,12 @@ func TestFileMagic(t *testing.T) {
 }
 
 func TestLiteral(t *testing.T) {
-	t.Run("ver0", func(t *testing.T) { testLiteral(t, 0) })
 	t.Run("ver1", func(t *testing.T) { testLiteral(t, 1) })
+	if t.Failed() {
+		return
+	}
+
+	t.Run("ver0", func(t *testing.T) { testLiteral(t, 0) })
 }
 
 func testLiteral(t *testing.T, ver int) {
@@ -57,6 +63,7 @@ func testLiteral(t *testing.T, ver int) {
 
 	w := NewWriter(&buf, B, B>>1)
 	w.ver = ver
+	w.AppendMagic = false
 
 	n, err := w.Write([]byte("very_first_message"))
 	assert.Equal(t, 18, n)
@@ -88,8 +95,12 @@ func testLiteral(t *testing.T, ver int) {
 }
 
 func TestCopy(t *testing.T) {
-	t.Run("ver0", func(t *testing.T) { testCopy(t, 0) })
 	t.Run("ver1", func(t *testing.T) { testCopy(t, 1) })
+	if t.Failed() {
+		return
+	}
+
+	t.Run("ver0", func(t *testing.T) { testCopy(t, 0) })
 }
 
 func testCopy(t *testing.T, ver int) {
@@ -99,6 +110,7 @@ func testCopy(t *testing.T, ver int) {
 
 	w := NewWriter(&buf, B, B>>1)
 	w.ver = ver
+	w.AppendMagic = false
 
 	st := 0
 
@@ -120,9 +132,7 @@ func testCopy(t *testing.T, ver int) {
 
 	t.Logf("res\n%v", Dump(buf))
 
-	r := &Reader{
-		b: buf,
-	}
+	r := NewReaderBytes(buf)
 
 	p := make([]byte, 100)
 
@@ -149,44 +159,37 @@ func testCopy(t *testing.T, ver int) {
 
 	t.Logf("buf  pos %x\n%v", r.pos, hex.Dump(r.block))
 
+	var exp low.Buf
+
+	wexp := NewWriter(&exp, B, B>>1)
+	wexp.ver = ver
+	wexp.AppendMagic = false
+
+	n, err = wexp.Write([]byte("prefix_1234_suffix"))
+	assert.NoError(t, err)
+	assert.Equal(t, 18, n)
+
+	_, _ = exp.Write([]byte{Copy | 7, 0x12 - 7})
+	_, _ = exp.Write([]byte{Literal | 3, '5', '6', '7'})
+	_, _ = exp.Write([]byte{Copy | 7, 0x11 - 7})
+
+	assert.Equal(t, Dump(exp), Dump(buf))
+
 	//	t.Logf("compression ratio: %.3f", float64(18+17)/float64(len(buf)))
-}
-
-func TestRunlen(t *testing.T) {
-	var b low.BufReader
-
-	p := make([]byte, 1000)
-	d := NewReader(&b)
-
-	_, _ = b.Write([]byte{Meta, MetaReset | 0, 4}) //nolint:staticcheck
-	_, _ = b.Write([]byte{Meta, MetaVer | 0, 1})   //nolint:staticcheck
-	_, _ = b.Write([]byte{Literal | 1, 'a', Copy | 5, OffLong, 1})
-
-	n, err := d.Read(p)
-	assert.ErrorIs(t, err, io.EOF)
-	assert.Equal(t, 6, n)
-	assert.Equal(t, []byte("aaaaaa"), p[:n])
-
-	_, _ = b.Write([]byte{Literal | 2, 'a', 'b', Copy | 5, OffLong, 2})
-
-	n, err = d.Read(p)
-	assert.ErrorIs(t, err, io.EOF)
-	assert.Equal(t, 7, n)
-	assert.Equal(t, []byte("abababa"), p[:n])
 }
 
 func TestBug1(t *testing.T) {
 	var b bytes.Buffer
 
 	p := make([]byte, 1000)
-	d := NewReader(&b)
+	r := NewReader(&b)
 
 	//	tl.Printw("first")
 
 	_, _ = b.Write([]byte{Meta, MetaReset | 0, 4}) //nolint:staticcheck
 	_, _ = b.Write([]byte{Literal | 3, 0x94, 0xa8, 0xfb, Copy | 9})
 
-	n, err := d.Read(p)
+	n, err := r.Read(p)
 	assert.ErrorIs(t, err, io.ErrUnexpectedEOF)
 	assert.Equal(t, 3, n)
 
@@ -194,7 +197,7 @@ func TestBug1(t *testing.T) {
 
 	_, _ = b.Write([]byte{0xfd, 0x03, 0x65}) // offset
 
-	n, err = d.Read(p)
+	n, err = r.Read(p)
 	assert.ErrorIs(t, err, io.EOF)
 	assert.Equal(t, 9, n)
 }
@@ -260,9 +263,135 @@ func TestPadding(t *testing.T) {
 	//	t.Logf("compression ratio: %.3f", float64(18+17)/float64(len(buf)))
 }
 
+func TestIntersectionLong(t *testing.T) {
+	testIntersection(t, func(rnd *rand.Rand, msg []byte) []byte {
+		msg2 := make([]byte, 0x20)
+
+		for i := range msg2[:0x10] {
+			msg2[i] = ' ' + byte(rnd.Intn(0x78-0x20))
+		}
+
+		copy(msg2[0x10:], msg[:0x10])
+
+		return msg2
+	})
+}
+
+func TestIntersectionShort(t *testing.T) {
+	testIntersection(t, func(rnd *rand.Rand, msg []byte) []byte {
+		msg2 := make([]byte, 0x20)
+
+		copy(msg2[:0x10], msg[len(msg)-0x10:])
+		copy(msg2[0x10:], msg[:0x10])
+
+		return msg2
+	})
+}
+
+func testIntersection(t *testing.T, msg2f func(rnd *rand.Rand, msg []byte) []byte) {
+	rnd := rand.New(rand.NewSource(0))
+
+	var enc low.BufReader
+
+	w := NewWriter(&enc, 1024, 512)
+
+	msg := make([]byte, len(w.block))
+
+	for i := range msg {
+		msg[i] = ' ' + byte(rnd.Intn(0x78-0x20))
+	}
+
+	n, err := w.Write(msg)
+	assert.NoError(t, err)
+	assert.Equal(t, len(msg), n)
+
+	require.Equal(t, msg, w.block)
+
+	msg2 := msg2f(rnd, msg)
+
+	n, err = w.Write(msg2)
+	assert.NoError(t, err)
+	assert.Equal(t, len(msg2), n)
+
+	// read
+
+	r := NewReaderBytes(enc.Buf)
+
+	ll := len(msg) + len(msg2)
+	res := make([]byte, ll+10)
+
+	n, err = r.Read(res)
+	assert.ErrorIs(t, err, io.EOF)
+	assert.Equal(t, ll, n)
+
+	assert.Equal(t, msg, res[:len(msg)])
+	assert.Equal(t, msg2, res[len(msg):ll])
+
+	t.Logf("dump\n%s", Dump(enc.Buf))
+}
+
+func TestRunlenDecoder(t *testing.T) {
+	var b low.BufReader
+
+	p := make([]byte, 1000)
+	d := NewReader(&b)
+
+	_, _ = b.Write([]byte{Meta, MetaReset | 0, 4}) //nolint:staticcheck
+	_, _ = b.Write([]byte{Meta, MetaVer | 0, 1})   //nolint:staticcheck
+	_, _ = b.Write([]byte{Literal | 1, 'a', Copy | 5, OffLong, 1})
+	_, _ = b.Write([]byte{Literal | 2, 'b', 'c', Copy | 5, OffLong, 2})
+	_, _ = b.Write([]byte{Literal | 2, 'x', 'x'})
+
+	n, err := d.Read(p)
+	assert.ErrorIs(t, err, io.EOF)
+	assert.Equal(t, 15, n)
+	assert.Equal(t, []byte("aaaaaabcbcbcbxx"), p[:n])
+}
+
+func TestRunlenEncoder(t *testing.T) {
+	var b low.Buf
+
+	w := NewWriter(&b, 128, 16)
+
+	n, err := w.Write([]byte{0})
+	assert.NoError(t, err)
+	assert.Equal(t, 1, n)
+
+	n, err = w.Write([]byte("aaaaaabcbcbcbxx"))
+	assert.NoError(t, err)
+	assert.Equal(t, 15, n)
+
+	n, err = w.Write(make([]byte, 0x1005))
+	assert.NoError(t, err)
+	assert.Equal(t, 0x1005, n)
+
+	enclen := (0x1005 - 1) - Len1 - 0xff
+
+	var exp low.Buf
+
+	n, err = NewWriter(&exp, 128, 16).Write([]byte{0})
+	assert.NoError(t, err)
+	assert.Equal(t, 1, n)
+
+	_, _ = exp.Write([]byte{Literal | 1, 'a', Copy | 5, OffLong, 1})
+	_, _ = exp.Write([]byte{Literal | 2, 'b', 'c', Copy | 5, OffLong, 2})
+	_, _ = exp.Write([]byte{Literal | 2, 'x', 'x'})
+	_, _ = exp.Write([]byte{Literal | 1, 0, Copy | Len2, byte(enclen >> 8), byte(enclen), OffLong, 1})
+
+	assert.Equal(t, Dump(exp), Dump(b))
+
+	if t.Failed() {
+		t.Logf("dump\n%s", Dump(b))
+	}
+}
+
 func TestOnFile(t *testing.T) {
-	t.Run("ver0", func(t *testing.T) { testOnFile(t, 0) })
 	t.Run("ver1", func(t *testing.T) { testOnFile(t, 1) })
+	if t.Failed() {
+		return
+	}
+
+	t.Run("ver0", func(t *testing.T) { testOnFile(t, 0) })
 }
 
 func testOnFile(t *testing.T, ver int) {

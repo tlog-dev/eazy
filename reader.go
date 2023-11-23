@@ -225,22 +225,9 @@ func (d *Reader) continueMetaTag(st int) (i int, err error) {
 	meta := d.b[i]
 	i++
 
-	l := int(meta &^ MetaTagMask)
-
-	if l == 7 {
-		if i == len(d.b) {
-			return st, eUnexpectedEOF
-		}
-
-		l = 7 + int(d.b[i])
-		i++
-	} else {
-		l = 1 << l
-	}
-
+	l := metaLen(d.b, i, meta)
 	//	println("meta", st-1, i, meta, l, i+l, len(d.b))
-
-	if i+l > len(d.b) {
+	if l == 0 || i+l > len(d.b) {
 		return st, eUnexpectedEOF
 	}
 
@@ -525,6 +512,10 @@ func (d *Reader) roff(b []byte, st, l int) (off, i int, err error) {
 		off += l
 	}
 
+	if off > len(d.block) && len(d.block) != 0 {
+		panic("offset > block_size")
+	}
+
 	return off, i, nil
 }
 
@@ -619,20 +610,12 @@ func (w *Dumper) Write(p []byte) (i int, err error) { //nolint:gocognit
 				return st, eUnexpectedEOF
 			}
 
-			meta := int(p[i])
+			meta := p[i]
 			i++
 
-			l = meta &^ MetaTagMask
-
-			if l == 7 {
-				if i == len(p) {
-					return st, eUnexpectedEOF
-				}
-
-				l = 7 + int(p[i])
-				i++
-			} else {
-				l = 1 << l
+			l = metaLen(p, i, meta)
+			if l == 0 {
+				return st, eUnexpectedEOF
 			}
 
 			w.b = hfmt.Appendf(w.b, "meta %2x %x  %q\n", meta>>3, l, p[i:i+l])
@@ -684,4 +667,21 @@ func (w *Dumper) Close() error {
 	w.b = hfmt.Appendf(w.b, "%6x  ", w.d.pos)
 
 	return nil
+}
+
+func metaLen(p []byte, i int, meta byte) int {
+	l := int(meta &^ MetaTagMask)
+
+	if l == 7 {
+		if i == len(p) {
+			return 0
+		}
+
+		l = 7 + int(p[i])
+		i++
+	} else {
+		l = 1 << l
+	}
+
+	return l
 }
