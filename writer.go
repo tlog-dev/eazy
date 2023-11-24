@@ -189,9 +189,16 @@ func (w *Writer) Write(p []byte) (done int, err error) {
 		pos := int(w.ht[h])
 		w.ht[h] = uint32(start + i)
 
+		off := pos - int(w.pos)
+
+		if -off > len(w.block) {
+			i++
+			continue
+		}
+
 		// runlen encoding
-		if st := pos - (start + done); st >= 0 && i > done+st && w.ver >= 1 {
-			done, i = w.writeRunlen(p, done, done+st, i)
+		if off >= 0 && i > done+off && w.ver >= 1 {
+			done, i = w.writeRunlen(p, done, done+off, i)
 
 			continue
 		}
