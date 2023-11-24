@@ -75,13 +75,17 @@ const (
 
 // Meta tags.
 const (
-	// len: 1 2 4 8  16 32 64 Len1
+	// len: 1 2 4 8  16 32 64 LenWide
 
 	MetaMagic = iota << 3 // 4: "eazy"
 	MetaVer               // 1: ver
 	MetaReset             // 1: block_size_log
 
+	//nolint:godot
+	// MetaCRC32IEEE
+
 	MetaTagMask = 0b1111_1000 // tag | log(size)
+	MetaLenWide = 1<<3 - 1
 )
 
 // FileMagic is the first bytes in a compressed stream.

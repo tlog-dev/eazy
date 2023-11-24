@@ -2,6 +2,8 @@ package eazy
 
 import (
 	"bytes"
+	stderrors "errors"
+	"fmt"
 	"io"
 
 	"github.com/nikandfor/hacked/hfmt"
@@ -19,6 +21,8 @@ type (
 		block []byte
 		mask  int
 		pos   int64 // stream position
+
+		SkipUnsupportedMeta bool
 
 		// current tag
 		state    byte
@@ -42,12 +46,19 @@ type (
 	}
 )
 
-var eUnexpectedEOF = errors.NewNoCaller("need more")
+var (
+	eUnexpectedEOF        = errors.NewNoCaller("need more")
+	ErrBadMagic           = stderrors.New("magic mismatched")
+	ErrUnsupportedVersion = stderrors.New("unsupported file format version")
+	ErrUnsupportedMeta    = stderrors.New("unsupported meta tag")
+)
 
 const (
 	legacy1 = "\x00\x03tlz\x00\x13000\x00\x20"
 	legacy2 = "\x00\x02eazy\x00\x08"
 )
+
+const maxVer = 1
 
 // NewReader creates new decompressor reading from r.
 func NewReader(r io.Reader) *Reader {
@@ -242,16 +253,23 @@ func (d *Reader) continueMetaTag(st int) (i int, err error) {
 	switch meta & MetaTagMask {
 	case MetaMagic:
 		if !bytes.Equal(d.b[i:i+l], []byte("eazy")) {
-			return st, errors.New("bad magic")
+			return st, ErrBadMagic
+		}
+	case MetaVer:
+		d.ver = int(d.b[i])
+		if d.ver > maxVer {
+			return st, fmt.Errorf("%w: %v", ErrUnsupportedVersion, d.ver)
 		}
 	case MetaReset:
 		bs := int(d.b[i])
 
 		d.reset(bs)
-	case MetaVer:
-		d.ver = int(d.b[i])
 	default:
-		return st, errors.New("unsupported meta: %x", meta)
+		if d.SkipUnsupportedMeta {
+			break
+		}
+
+		return st, fmt.Errorf("%w: %v", ErrUnsupportedMeta, meta)
 	}
 
 	i += l
@@ -681,12 +699,17 @@ func metaLen(p []byte, st int, meta byte) (l, i int) {
 	i = st
 	l = int(meta &^ MetaTagMask)
 
-	if l == 7 {
+	if l == MetaLenWide {
 		if i == len(p) {
 			return -1, st
 		}
 
-		l = 7 + int(p[i])
+		l = int(p[i])
+		if l >= Off1 {
+			panic("we didn't expect that")
+		}
+
+		l += MetaLenWide
 		i++
 	} else {
 		l = 1 << l

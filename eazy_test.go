@@ -467,6 +467,98 @@ func testGiantLiteral(t *testing.T, f func(rnd *rand.Rand, bs int) []byte) {
 	}
 }
 
+func TestUnsupportedVersion(t *testing.T) {
+	var b low.Buf
+
+	w := NewWriter(&b, 128, 16)
+
+	_, _ = w.Write([]byte{0})
+
+	b[len(FileMagic)+2]++
+
+	r := NewReaderBytes(b)
+
+	n, err := r.Read([]byte{1})
+	assert.ErrorIs(t, err, ErrUnsupportedVersion)
+	assert.Zero(t, n)
+}
+
+func TestLongMeta(t *testing.T) {
+	var b low.Buf
+
+	w := NewWriter(&b, 1024, 32)
+
+	_, err := w.Write([]byte{1})
+	assert.NoError(t, err)
+
+	b = append(b, Meta, MetaTagMask|MetaLenWide, 128-MetaLenWide)
+
+	st := len(b)
+	b = append(b, make([]byte, 128)...)
+
+	copy(b[st:], "0123456789")
+
+	_, err = w.Write([]byte{2})
+	assert.NoError(t, err)
+
+	t.Logf("dump\n%s", Dump(b))
+
+	r := NewReaderBytes(b)
+	r.SkipUnsupportedMeta = true
+
+	p := make([]byte, 3)
+
+	n, err := r.Read(p)
+	assert.ErrorIs(t, err, io.EOF)
+	assert.Equal(t, []byte{1, 2}, p[:n])
+}
+
+func TestLongLenOff(t *testing.T) {
+	t.Run("ver1", func(t *testing.T) { testLongLenOff(t, 1) })
+	if t.Failed() {
+		return
+	}
+
+	t.Run("ver0", func(t *testing.T) { testLongLenOff(t, 0) })
+}
+
+func testLongLenOff(t *testing.T, ver int) {
+	var b low.BufReader
+
+	w := NewWriter(&b, 1<<18, 1<<16)
+	w.ver = ver
+
+	rnd := rand.New(rand.NewSource(0))
+
+	msg := make([]byte, 1<<17)
+
+	for i := range msg {
+		msg[i] = ' ' + byte(rnd.Intn(0x78-0x20))
+	}
+
+	_, err := w.Write(msg)
+	assert.NoError(t, err)
+
+	r := NewReader(&b)
+
+	p := make([]byte, len(msg)+1)
+
+	n, err := r.Read(p)
+	assert.ErrorIs(t, err, io.EOF)
+	assert.Equal(t, msg, p[:n])
+
+	for i := range msg[128:] {
+		msg[128+i] = ' ' + byte(rnd.Intn(0x78-0x20))
+	}
+
+	_, err = w.Write(msg)
+	assert.NoError(t, err)
+
+	n, err = r.Read(p)
+	assert.ErrorIs(t, err, io.EOF)
+	assert.Equal(t, msg, p[:n])
+}
+
 func TestOnFile(t *testing.T) {
 	t.Run("ver1", func(t *testing.T) { testOnFile(t, 1) })
 	if t.Failed() {
