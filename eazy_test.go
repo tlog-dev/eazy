@@ -382,7 +382,7 @@ func TestRunlenEncoder(t *testing.T) {
 
 	enclen := (0x1005 - 1) - Len1 - 0xff
 
-	_, _ = exp.Write([]byte{Literal | 1, 0, Copy | Len2, byte(enclen >> 8), byte(enclen), OffLong, 1})
+	_, _ = exp.Write([]byte{Literal | 1, 0, Copy | Len2, byte(enclen), byte(enclen >> 8), OffLong, 1})
 
 	if !assert.Equal(t, Dump(exp), Dump(b)) {
 		t.Logf("dump\n%s", Dump(b))

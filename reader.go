@@ -441,7 +441,7 @@ func (d *Reader) tag(b []byte, st int) (tag, l, i int, err error) {
 		}
 
 		l = Len1 + 0xff
-		l += int(b[i])<<8 | int(b[i+1])
+		l += int(b[i]) | int(b[i+1])<<8
 		i += 2
 	case Len4:
 		if i+4 > len(b) {
@@ -449,7 +449,7 @@ func (d *Reader) tag(b []byte, st int) (tag, l, i int, err error) {
 		}
 
 		l = Len1 + 0xff + 0xffff
-		l += int(b[i])<<24 | int(b[i+1])<<16 | int(b[i+2])<<8 | int(b[i+3])
+		l += int(b[i]) | int(b[i+1])<<8 | int(b[i+2])<<16 | int(b[i+3])<<24
 		i += 4
 	case Len8:
 		panic("too big length")
@@ -500,7 +500,7 @@ func (d *Reader) roff(b []byte, st, l int) (off, i int, err error) {
 		}
 
 		off = Off1 + 0xff
-		off += int(b[i])<<8 | int(b[i+1])
+		off += int(b[i]) | int(b[i+1])<<8
 		i += 2
 	case Off4:
 		if i+4 > len(b) {
@@ -508,7 +508,7 @@ func (d *Reader) roff(b []byte, st, l int) (off, i int, err error) {
 		}
 
 		off = Off1 + 0xff + 0xffff
-		off += int(b[i])<<24 | int(b[i+1])<<16 | int(b[i+2])<<8 | int(b[i+3])
+		off += int(b[i]) | int(b[i+1])<<8 | int(b[i+2])<<16 | int(b[i+3])<<24
 		i += 4
 	case Off8:
 		panic("too big offset")

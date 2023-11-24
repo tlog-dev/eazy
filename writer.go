@@ -449,13 +449,13 @@ func (w *Writer) appendTag(b []byte, tag byte, l int) []byte {
 	l -= 0xff
 
 	if l <= 0xffff {
-		return append(b, tag|Len2, byte(l>>8), byte(l))
+		return append(b, tag|Len2, byte(l), byte(l>>8))
 	}
 
 	l -= 0xffff
 
 	if l <= 0xffff_ffff {
-		return append(b, tag|Len4, byte(l>>24), byte(l>>16), byte(l>>8), byte(l))
+		return append(b, tag|Len4, byte(l), byte(l>>8), byte(l>>16), byte(l>>24))
 	}
 
 	panic("too big length")
@@ -479,13 +479,13 @@ func (w *Writer) appendOff(b []byte, l int) []byte {
 	l -= 0xff
 
 	if l <= 0xffff {
-		return append(b, Off2, byte(l>>8), byte(l))
+		return append(b, Off2, byte(l), byte(l>>8))
 	}
 
 	l -= 0xffff
 
 	if l <= 0xffff_ffff {
-		return append(b, Off4, byte(l>>24), byte(l>>16), byte(l>>8), byte(l))
+		return append(b, Off4, byte(l), byte(l>>8), byte(l>>16), byte(l>>24))
 	}
 
 	panic("too big offset")
