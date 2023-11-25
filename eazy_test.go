@@ -37,12 +37,24 @@ func TestFileMagic(t *testing.T) {
 
 	w := NewWriter(&buf, MiB, 512)
 
-	_, err := w.Write([]byte{0})
+	err := w.WriteHeader()
 	assert.NoError(t, err)
 
 	if assert.True(t, len(buf) >= len(FileMagic)) {
 		assert.Equal(t, FileMagic, string(buf[:len(FileMagic)]))
 	}
+
+	l := len(buf)
+
+	err = w.WriteHeader()
+	assert.NoError(t, err)
+
+	assert.Len(t, buf, l)
+
+	_, err = w.Write([]byte{0})
+	assert.NoError(t, err)
+
+	assert.Len(t, buf, l+2)
 
 	t.Logf("file header:\n%s", hex.Dump(buf))
 }
@@ -259,6 +271,66 @@ func TestPadding(t *testing.T) {
 	t.Logf("buf  pos %x\n%v", r.pos, hex.Dump(r.block))
 
 	//	t.Logf("compression ratio: %.3f", float64(18+17)/float64(len(buf)))
+}
+
+func TestReset(t *testing.T) {
+	var b [5]low.BufReader
+
+	w := NewWriter(&b[0], 1024, 32)
+
+	_, err := w.Write([]byte("some_message"))
+	assert.NoError(t, err)
+
+	w.Reset(&b[1])
+
+	_, err = w.Write([]byte("another_message"))
+	assert.NoError(t, err)
+
+	w.ResetSize(&b[2], 2048, 64)
+
+	_, err = w.Write([]byte("third_message"))
+	assert.NoError(t, err)
+
+	w.ResetSize(&b[3], 512, 16)
+
+	_, err = w.Write([]byte("fourth_message"))
+	assert.NoError(t, err)
+
+	w.ResetSize(&b[4], 1024, 32)
+
+	_, err = w.Write([]byte("fifth_message"))
+	assert.NoError(t, err)
+
+	r := NewReader(&b[0])
+	p := make([]byte, 0x20)
+
+	n, err := r.Read(p)
+	assert.ErrorIs(t, err, io.EOF)
+	assert.Equal(t, "some_message", string(p[:n]))
+
+	r.Reset(&b[1])
+
+	n, err = r.Read(p)
+	assert.ErrorIs(t, err, io.EOF)
+	assert.Equal(t, "another_message", string(p[:n]))
+
+	r.ResetBytes(b[2].Buf)
+
+	n, err = r.Read(p)
+	assert.ErrorIs(t, err, io.EOF)
+	assert.Equal(t, "third_message", string(p[:n]))
+
+	r.ResetBytes(b[3].Buf)
+
+	n, err = r.Read(p)
+	assert.ErrorIs(t, err, io.EOF)
+	assert.Equal(t, "fourth_message", string(p[:n]))
+
+	r.Reset(&b[4])
+
+	n, err = r.Read(p)
+	assert.ErrorIs(t, err, io.EOF)
+	assert.Equal(t, "fifth_message", string(p[:n]))
 }
 
 func TestIntersectionLong(t *testing.T) {
@@ -788,6 +860,7 @@ func BenchmarkDecompressFile(b *testing.B) {
 	if min > decoded.Len() {
 		min = decoded.Len()
 	}
+
 	assert.Equal(b, testData[:min], decoded.Bytes())
 }
 
@@ -813,7 +886,7 @@ func loadTestFile(tb testing.TB, f string) (err error) {
 		//	st = d.Skip(testData, st)
 
 		for { // a kinda tlwire.Decoder
-			st = nextIndex(st+1, testData,
+			st = nextIndex(testData, st+1,
 				[]byte{0xbf, 0x62, '_', 's', 0xcb, 0x50},
 				[]byte{0xbf, 0x62, '_', 't', 0xc2, 0x1b})
 
@@ -904,19 +977,19 @@ func FuzzEazy(f *testing.F) {
 
 func (c *ByteCounter) Write(p []byte) (n int, err error) {
 	n = len(p)
-	*c += ByteCounter(len(p))
+	*c += ByteCounter(n)
 
 	return
 }
 
-func nextIndex(st int, b []byte, s ...[]byte) (i int) {
+func nextIndex(b []byte, st int, s ...[]byte) (i int) {
 	for i = st; i < len(b); i++ {
 		for _, s := range s {
-			if i+len(s) < len(b) && bytes.Equal(b[i:i+len(s)], s) {
+			if bytes.HasPrefix(b[i:], s) {
 				return i
 			}
 		}
 	}
 
-	return i
+	return len(b)
 }

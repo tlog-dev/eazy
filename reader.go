@@ -77,7 +77,7 @@ func NewReaderBytes(b []byte) *Reader {
 
 // Reset resets the stream.
 func (d *Reader) Reset(rd io.Reader) {
-	d.ResetBytes(d.b[:len(d.b)])
+	d.ResetBytes(d.b[:0])
 	d.Reader = rd
 }
 
@@ -317,7 +317,7 @@ func (d *Reader) checkLegacy(st int) (int, error) {
 func (d *Reader) reset(bs int) {
 	bs = 1 << bs
 
-	if cap(d.block) >= bs {
+	if bs <= cap(d.block) {
 		d.block = d.block[:bs]
 
 		for i := 0; i < bs; {

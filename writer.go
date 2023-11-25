@@ -3,6 +3,7 @@ package eazy
 import (
 	"fmt"
 	"io"
+	"math/bits"
 	"os"
 	"unsafe"
 )
@@ -121,8 +122,42 @@ func (w *Writer) Reset(wr io.Writer) {
 	w.reset()
 }
 
+// ResetSize recreates Writer trying reuse allocated objects.
+func (w *Writer) ResetSize(wr io.Writer, block, htable int) {
+	w.Writer = wr
+	w.init(block, htable)
+	w.reset()
+}
+
+func (w *Writer) init(bs, hs int) {
+	if (bs-1)&bs != 0 || bs < 32 || bs > 1<<31 {
+		panic("block size must be a power of two (32 < bs < 1<<31)")
+	}
+
+	if (hs-1)&hs != 0 || hs < 4 {
+		panic("hash table size must be a power of two (hs > 4)")
+	}
+
+	w.mask = bs - 1
+
+	if bs <= cap(w.block) {
+		w.block = w.block[:bs]
+	} else {
+		w.block = make([]byte, bs)
+	}
+
+	w.hsh = 32 - uint(bits.Len(uint(hs)-1))
+
+	if hs <= cap(w.ht) {
+		w.ht = w.ht[:hs]
+	} else {
+		w.ht = make([]uint32, hs)
+	}
+}
+
 func (w *Writer) reset() {
 	w.pos = 0
+	w.written = 0
 
 	for i := 0; i < len(w.block); {
 		i += copy(w.block[i:], zeros)
@@ -133,55 +168,11 @@ func (w *Writer) reset() {
 	}
 }
 
-// ResetSize recreates Writer trying reuse allocated objects.
-func (w *Writer) ResetSize(wr io.Writer, block, htable int) {
-	w.Writer = wr
-	w.pos = 0
-	w.init(block, htable)
-}
-
-func (w *Writer) init(bs, hs int) {
-	if (bs-1)&bs != 0 || bs < 32 || bs > 1<<31 {
-		panic("block size must be a power of two")
-	}
-
-	if (hs-1)&hs != 0 || hs < 4 {
-		panic("hash table size must be a power of two")
-	}
-
-	w.mask = bs - 1
-
-	if bs <= cap(w.block) {
-		w.block = w.block[:bs]
-
-		for i := 0; i < len(w.block); {
-			i += copy(w.block[i:], zeros)
-		}
-	} else {
-		w.block = make([]byte, bs)
-	}
-
-	w.hsh = uint(2)
-	for 1<<(32-w.hsh) != hs {
-		w.hsh++
-	}
-
-	if hs <= cap(w.ht) {
-		w.ht = w.ht[:hs]
-
-		for i := range w.ht {
-			w.ht[i] = 0
-		}
-	} else {
-		w.ht = make([]uint32, hs)
-	}
-}
-
 // Write is io.Writer implementation.
 func (w *Writer) Write(p []byte) (done int, err error) {
 	w.b = w.b[:0]
 
-	if w.pos == 0 && len(p) != 0 {
+	if w.written == 0 {
 		w.b = w.appendHeader(w.b)
 	}
 
@@ -300,6 +291,25 @@ func (w *Writer) Write(p []byte) (done int, err error) {
 		done = len(p)
 	}
 
+	err = w.write()
+	if err != nil {
+		return 0, err
+	}
+
+	return done, nil
+}
+
+func (w *Writer) WriteHeader() error {
+	if w.written != 0 {
+		return nil
+	}
+
+	w.b = w.appendHeader(w.b[:0])
+
+	return w.write()
+}
+
+func (w *Writer) write() (err error) {
 	n, err := w.Writer.Write(w.b)
 	w.written += int64(n)
 
@@ -307,7 +317,7 @@ func (w *Writer) Write(p []byte) (done int, err error) {
 		w.reset()
 	}
 
-	return done, err
+	return err
 }
 
 func (w *Writer) writeRunlen(p []byte, done, st, i int) (nextdone, iend int) {
@@ -378,11 +388,7 @@ func (w *Writer) appendMagic(b []byte) []byte {
 }
 
 func (w *Writer) appendReset(b []byte, block int) []byte {
-	bs := 0
-
-	for q := block; q != 1; q >>= 1 {
-		bs++
-	}
+	bs := bits.TrailingZeros(uint(block))
 
 	return append(b, Meta, MetaReset|0, byte(bs)) //nolint:staticcheck
 }
