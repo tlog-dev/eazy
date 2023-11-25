@@ -159,6 +159,10 @@ func (d *Reader) read(p []byte, st int) (n, i int, err error) {
 	case int64(d.off+d.len) <= d.pos:
 		end = copy(p[:end], d.block[d.off&d.mask:])
 		d.off += end
+	case int64(d.off) == d.pos: // zero region
+		for j := 0; j < end; {
+			j += copy(p[j:end], zeros)
+		}
 	default:
 		rlen := int(d.pos) - d.off
 		if rlen == 0 {
@@ -527,7 +531,7 @@ func (d *Reader) roff(b []byte, st, l int) (off, i int, err error) {
 		off += l
 	}
 
-	if off > len(d.block) && len(d.block) != 0 {
+	if off > len(d.block) {
 		return off, i, ErrOverflow
 	}
 

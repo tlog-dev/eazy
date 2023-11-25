@@ -273,6 +273,18 @@ func TestPadding(t *testing.T) {
 	//	t.Logf("compression ratio: %.3f", float64(18+17)/float64(len(buf)))
 }
 
+func TestZeroRegion(t *testing.T) {
+	b := []byte{Meta, MetaReset, 2, Copy | 10, 0}
+	r := NewReaderBytes(b)
+
+	p := make([]byte, 16)
+	copy(p, "some garbage")
+
+	n, err := r.Read(p)
+	assert.ErrorIs(t, err, io.EOF)
+	assert.Equal(t, zeros[:10], p[:n])
+}
+
 func TestReset(t *testing.T) {
 	var b [5]low.BufReader
 
