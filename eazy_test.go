@@ -32,7 +32,7 @@ var (
 	testsCount int
 )
 
-func TestFileMagic(t *testing.T) {
+func TestMagic(t *testing.T) {
 	var buf low.Buf
 
 	w := NewWriter(&buf, MiB, 512)
@@ -40,8 +40,8 @@ func TestFileMagic(t *testing.T) {
 	err := w.WriteHeader()
 	assert.NoError(t, err)
 
-	if assert.True(t, len(buf) >= len(FileMagic)) {
-		assert.Equal(t, FileMagic, string(buf[:len(FileMagic)]))
+	if assert.True(t, len(buf) >= len(Magic)) {
+		assert.Equal(t, Magic, string(buf[:len(Magic)]))
 	}
 
 	l := len(buf)
@@ -333,6 +333,22 @@ func TestReset(t *testing.T) {
 	assert.Equal(t, "fifth_message", string(p[:n]))
 }
 
+func TestReaderRequireMagic(t *testing.T) {
+	var b low.BufReader
+
+	w := NewWriter(&b, 1024, 32)
+	w.AppendMagic = false
+
+	_, err := w.Write([]byte{0})
+	assert.NoError(t, err)
+
+	r := NewReader(&b)
+	r.RequireMagic = true
+
+	_, err = r.Read([]byte{0})
+	assert.ErrorIs(t, err, ErrNoMagic)
+}
+
 func TestIntersectionLong(t *testing.T) {
 	testIntersection(t, func(rnd *rand.Rand, msg []byte) []byte {
 		msg2 := make([]byte, 0x20)
@@ -546,7 +562,7 @@ func TestUnsupportedVersion(t *testing.T) {
 
 	_, _ = w.Write([]byte{0})
 
-	b[len(FileMagic)+2]++
+	b[len(Magic)+2]++
 
 	r := NewReaderBytes(b)
 

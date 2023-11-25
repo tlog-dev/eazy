@@ -89,8 +89,8 @@ const (
 	MetaLenWide = 1<<3 - 1
 )
 
-// FileMagic is the first bytes in a compressed stream.
-const FileMagic = "\x80\x02eazy"
+// Magic is the first bytes in a compressed stream.
+const Magic = "\x80\x02eazy"
 
 var zeros = make([]byte, 1024)
 
@@ -216,6 +216,11 @@ func (w *Writer) Write(p []byte) (done int, err error) {
 		iend := i
 		end := pos
 
+		for iend < len(p)-8 && end&w.mask < len(w.block)-8 && equal8(p[iend:], w.block[end&w.mask:]) {
+			iend += 8
+			end += 8
+		}
+
 		for iend < len(p) && p[iend] == w.block[end&w.mask] {
 			iend++
 			end++
@@ -275,7 +280,7 @@ func (w *Writer) Write(p []byte) (done int, err error) {
 		w.appendCopy(st, end)
 		w.copyData(p, ist, iend)
 
-		if i+4 < len(p) {
+		if i+1+4 <= len(p) {
 			h = w.hash(p, i+1)
 			w.ht[h] = uint32(start + i + 1)
 		}
@@ -504,4 +509,9 @@ func (w *Writer) appendOff(b []byte, l int) []byte {
 //nolint:unused,deadcode,goprintffuncname
 func dpr(format string, args ...interface{}) {
 	_, _ = fmt.Fprintf(os.Stderr, format, args...)
+}
+
+func equal8(x, y []byte) bool {
+	return *(*uint64)(unsafe.Pointer(&x[0])) ==
+		*(*uint64)(unsafe.Pointer(&y[0]))
 }

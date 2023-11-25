@@ -22,6 +22,7 @@ type (
 		mask  int
 		pos   int64 // stream position
 
+		RequireMagic        bool
 		SkipUnsupportedMeta bool
 
 		// current tag
@@ -48,7 +49,8 @@ type (
 
 var (
 	eUnexpectedEOF        = errors.NewNoCaller("need more")
-	ErrBadMagic           = stderrors.New("magic mismatched")
+	ErrBadMagic           = stderrors.New("bad magic")
+	ErrNoMagic            = stderrors.New("no magic")
 	ErrUnsupportedVersion = stderrors.New("unsupported file format version")
 	ErrUnsupportedMeta    = stderrors.New("unsupported meta tag")
 )
@@ -191,19 +193,23 @@ func (d *Reader) read(p []byte, st int) (n, i int, err error) {
 }
 
 func (d *Reader) readTag(st int) (i int, err error) {
-	// skip zero padding
-	for st < len(d.b) && d.b[st] == 0 {
-		st++
-	}
-
 	st, err = d.checkLegacy(st)
 	if err != nil {
 		return st, err
 	}
 
+	// skip zero padding
+	for st < len(d.b) && d.b[st] == 0 {
+		st++
+	}
+
 	tag, l, i, err := d.tag(d.b, st)
 	if err != nil {
 		return st, err
+	}
+
+	if d.boff == 0 && st == 0 && d.b[st] != Meta && d.RequireMagic {
+		return st, ErrNoMagic
 	}
 
 	//	println("readTag", tag, l, st, i, d.i, len(d.b))
@@ -243,6 +249,10 @@ func (d *Reader) continueMetaTag(st int) (i int, err error) {
 
 	meta := d.b[i]
 	i++
+
+	if d.boff == 0 && st == 0 && meta&MetaTagMask != MetaMagic && d.RequireMagic {
+		return st, ErrNoMagic
+	}
 
 	l, i := metaLen(d.b, i, meta)
 	//	println("meta", st-1, i, meta, l, i+l, len(d.b))

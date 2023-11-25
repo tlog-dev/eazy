@@ -23,9 +23,9 @@ Repeating parts are encoded as pairs of length and offset of the previous occurr
 Writer block size is the sliding window size, the latest stream part size where similar sequences are searched.
 Repeating similar messages should be at most block size far from each other to be better compressed.
 
-Stream is started with `eazy.FileMagic` so the file format can be detected.
+Stream is started with `eazy.Magic` so the format can be detected.
 
-Multiple streams can be safely concatenated.
+Multiple streams can be safely concatenated. Zero bytes padding may also be safely added.
 
 ## Usage
 
