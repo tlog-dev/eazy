@@ -476,7 +476,7 @@ func (d *Reader) tag(b []byte, st int) (tag, l, i int, err error) {
 			return tag, l, st, eUnexpectedEOF
 		}
 
-		l = Len1 + 0xff
+		l = Len1 + 0x100
 		l += int(b[i]) | int(b[i+1])<<8
 		i += 2
 	case Len4:
@@ -484,7 +484,7 @@ func (d *Reader) tag(b []byte, st int) (tag, l, i int, err error) {
 			return tag, l, st, eUnexpectedEOF
 		}
 
-		l = Len1 + 0xff + 0xffff
+		l = Len1 + 0x100 + 0x1_0000
 		l += int(b[i]) | int(b[i+1])<<8 | int(b[i+2])<<16 | int(b[i+3])<<24
 		i += 4
 	case Len8:
@@ -554,7 +554,7 @@ func (d *Reader) poff(b []byte, st, off int) (_, i int, err error) {
 			return off, st, eUnexpectedEOF
 		}
 
-		off = Off1 + 0xff
+		off = Off1 + 0x100
 		off += int(b[i]) | int(b[i+1])<<8
 		i += 2
 	case Off4:
@@ -562,7 +562,7 @@ func (d *Reader) poff(b []byte, st, off int) (_, i int, err error) {
 			return off, st, eUnexpectedEOF
 		}
 
-		off = Off1 + 0xff + 0xffff
+		off = Off1 + 0x100 + 0x1_0000
 		off += int(b[i]) | int(b[i+1])<<8 | int(b[i+2])<<16 | int(b[i+3])<<24
 		i += 4
 	case Off8:

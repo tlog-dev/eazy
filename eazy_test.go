@@ -480,7 +480,7 @@ func TestRunlenEncoder(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, 0x1005, n)
 
-	enclen := (0x1005 - 1) - Len1 - 0xff
+	enclen := 0x1005 - Len1 - 0x100
 
 	_, _ = exp.Write([]byte{Literal | 1, 0, Copy | Len2, byte(enclen), byte(enclen >> 8), OffLong, 1})
 
@@ -1043,4 +1043,112 @@ func nextIndex(b []byte, st int, s ...[]byte) (i int) {
 	}
 
 	return len(b)
+}
+
+func TestPrintTagEncoding(t *testing.T) {
+	f := func(t *testing.T, ver int) {
+		var b low.Buf
+		var w Writer
+		w.ver = ver
+
+		for _, l := range []int{
+			1,
+			Len1 - 1,
+			Len1,
+			Len1 + 1,
+			255, 256,
+			Len1 + 256 - 1,
+			Len1 + 256,
+			Len1 + 256 + 1,
+			Len1 + 256 + 0x10000 - 1,
+			Len1 + 256 + 0x10000,
+		} {
+			b = w.appendTag(b[:0], Literal, l)
+
+			t.Logf("value %5d (0x%5[1]x) encoded as   % x", l, b)
+		}
+
+		var r Reader
+		r.ver = ver
+
+		for _, b := range [][]byte{
+			{0x00},
+			{0x01},
+			{Len1 - 1},
+			{Len1, 0x00},
+			{Len1, 0x01},
+			{Len1, 0xff},
+			{Len2, 0x00, 0x00},
+			{Len2, 0x01, 0x00},
+			{Len2, 0x00, 0x01},
+		} {
+			_, l, i, err := r.tag(b, 0)
+			assert.NoError(t, err)
+			assert.Equal(t, len(b), i)
+
+			t.Logf("value %5d (0x%5[1]x) decoded from % x", l, b)
+		}
+	}
+
+	t.Run("ver0", func(t *testing.T) {
+		f(t, 0)
+	})
+
+	t.Run("ver1", func(t *testing.T) {
+		f(t, 1)
+	})
+}
+
+func TestPrintOffsetEncoding(t *testing.T) {
+	f := func(t *testing.T, ver int) {
+		var b low.Buf
+		var w Writer
+		w.ver = ver
+
+		for _, off := range []int{
+			1,
+			Off1 - 1,
+			Off1,
+			Off1 + 1,
+			255, 256,
+			Off1 + 256 - 1,
+			Off1 + 256,
+			Off1 + 256 + 1,
+			Off1 + 256 + 0x10000 - 1,
+			Off1 + 256 + 0x10000,
+		} {
+			b = w.appendOff(b[:0], off)
+
+			t.Logf("value %5d (0x%5[1]x) encoded as   % x", off, b)
+		}
+
+		var r Reader
+		r.ver = ver
+
+		for _, b := range [][]byte{
+			{0x00},
+			{0x01},
+			{Off1 - 1},
+			{Off1, 0x00},
+			{Off1, 0x01},
+			{Off1, 0xff},
+			{Off2, 0x00, 0x00},
+			{Off2, 0x01, 0x00},
+			{Off2, 0x00, 0x01},
+		} {
+			off, i, err := r.poff(b, 1, int(b[0]))
+			assert.NoError(t, err, "buf % x", b)
+			assert.Equal(t, len(b), i, "buf % x", b)
+
+			t.Logf("value %5d (0x%5[1]x) decoded from % x", off, b)
+		}
+	}
+
+	t.Run("ver0", func(t *testing.T) {
+		f(t, 0)
+	})
+
+	t.Run("ver1", func(t *testing.T) {
+		f(t, 1)
+	})
 }

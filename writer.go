@@ -84,6 +84,7 @@ const (
 
 	//nolint:godot
 	// MetaCRC32IEEE
+	// MetaXXHash32
 
 	MetaTagMask = 0b1111_1000 // tag | log(size)
 	MetaLenWide = 1<<3 - 1
@@ -457,19 +458,19 @@ func (w *Writer) appendTag(b []byte, tag byte, l int) []byte {
 
 	l -= Len1
 
-	if l <= 0xff {
+	if l < 0x100 {
 		return append(b, tag|Len1, byte(l))
 	}
 
-	l -= 0xff
+	l -= 0x100
 
-	if l <= 0xffff {
+	if l < 0x1_0000 {
 		return append(b, tag|Len2, byte(l), byte(l>>8))
 	}
 
-	l -= 0xffff
+	l -= 0x1_0000
 
-	if l <= 0xffff_ffff {
+	if l < 0x1_0000_0000 {
 		return append(b, tag|Len4, byte(l), byte(l>>8), byte(l>>16), byte(l>>24))
 	}
 
@@ -487,19 +488,19 @@ func (w *Writer) appendOff(b []byte, l int) []byte {
 
 	l -= Off1
 
-	if l <= 0xff {
+	if l < 0x100 {
 		return append(b, Off1, byte(l))
 	}
 
-	l -= 0xff
+	l -= 0x100
 
-	if l <= 0xffff {
+	if l < 0x1_0000 {
 		return append(b, Off2, byte(l), byte(l>>8))
 	}
 
-	l -= 0xffff
+	l -= 0x1_0000
 
-	if l <= 0xffff_ffff {
+	if l <= 0x1_0000_0000 {
 		return append(b, Off4, byte(l), byte(l>>8), byte(l>>16), byte(l>>24))
 	}
 
