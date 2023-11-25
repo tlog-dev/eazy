@@ -923,7 +923,7 @@ func loadTestFile(tb testing.TB, f string) (err error) {
 	return
 }
 
-func FuzzEazy(f *testing.F) {
+func FuzzWriter(f *testing.F) {
 	f.Add(
 		[]byte("prefix_1234_suffix"),
 		[]byte("prefix_567_suffix"),
@@ -988,6 +988,29 @@ func FuzzEazy(f *testing.F) {
 		}
 
 		t.Logf("encoded dump\n%s", Dump(wbuf.Bytes()))
+	})
+}
+
+func FuzzReader(f *testing.F) {
+	header := low.Buf{Meta, MetaVer, 1, Meta, MetaReset, 20}
+
+	f.Add([]byte{Literal | 3, 'a', 'b', 'c'})
+	f.Add([]byte{Literal | 3, 'a', 'b', 'c', Copy | 3, 0})
+	f.Add([]byte{Meta, MetaVer, 1})
+	f.Add([]byte{Meta, MetaReset, 6})
+	f.Add([]byte{Meta, MetaVer, 1, Meta, MetaReset, 6, Literal | 3, 'a', 'b', 'c'})
+	f.Add([]byte{Meta, MetaVer, 1, Meta, MetaReset, 6, Literal | 3, 'a', 'b', 'c', Copy | 3, 0})
+
+	f.Fuzz(func(t *testing.T, p []byte) {
+		b := low.BufReader{Buf: p}
+		r := NewReader(&b)
+		w := NewDumper(nil)
+
+		_, err := io.Copy(w, io.MultiReader(
+			&low.BufReader{Buf: header},
+			r,
+		))
+		_ = err
 	})
 }
 
