@@ -56,8 +56,8 @@ const (
 
 // Tag lengths.
 const (
-	_ = 1<<7 - iota
-	Len8
+	_    = 1<<7 - iota
+	Len8 // Deprecated
 	Len4
 	Len2
 	Len1
@@ -65,8 +65,8 @@ const (
 
 // Offset lengths.
 const (
-	_ = 1<<8 - iota
-	Off8
+	_    = 1<<8 - iota
+	Off8 // Deprecated
 	Off4
 	Off2
 	Off1
