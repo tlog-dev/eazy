@@ -14,3 +14,5 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	tlog.app/go/loc v0.6.1 // indirect
 )
+
+retract v0.2.0 // Unintended tag
