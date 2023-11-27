@@ -12,11 +12,17 @@ import (
 )
 
 type (
+	// Parser is a low level tool to manually parse the eazy stream.
+	// Use Reader to just get the data decompressed.
+	Parser struct {
+		Ver int
+	}
+
 	// Reader is eazy decompressor.
 	Reader struct {
 		io.Reader
 
-		ver int
+		Parser
 
 		block []byte
 		mask  int
@@ -42,6 +48,7 @@ type (
 
 		d Reader
 
+		Debug        func(ioff, ooff int64, tag byte, l, off int)
 		GlobalOffset int64
 
 		b low.Buf
@@ -49,7 +56,7 @@ type (
 )
 
 var (
-	eUnexpectedEOF        = errors.NewNoCaller("need more")
+	ErrEndOfBuffer        = stderrors.New("unexpected end of buffer")
 	ErrBadMagic           = stderrors.New("bad magic")
 	ErrNoMagic            = stderrors.New("no magic")
 	ErrUnsupportedVersion = stderrors.New("unsupported file format version")
@@ -111,11 +118,11 @@ func (d *Reader) Read(p []byte) (n int, err error) {
 		d.i = i
 
 		if n == len(p) {
-			err = nil
+			//	err = nil
 			break
 		}
 
-		if err != eUnexpectedEOF { //nolint:errorlint
+		if err != ErrEndOfBuffer { //nolint:errorlint
 			continue
 		}
 
@@ -144,7 +151,7 @@ func (d *Reader) read(p []byte, st int) (n, i int, err error) {
 	}
 
 	if d.state == 'l' && i == len(d.b) {
-		return 0, i, eUnexpectedEOF
+		return 0, i, ErrEndOfBuffer
 	}
 
 	end := d.len
@@ -205,12 +212,16 @@ func (d *Reader) readTag(st int) (i int, err error) {
 		return st, err
 	}
 
+	i = st
+
 	// skip zero padding
-	for st < len(d.b) && d.b[st] == 0 {
-		st++
+	for i < len(d.b) && d.b[i] == 0 {
+		i++
 	}
 
-	tag, l, i, err := d.tag(d.b, st)
+	st = i
+
+	tag, l, i, err := d.Tag(d.b, st)
 	if err != nil {
 		return st, err
 	}
@@ -232,10 +243,14 @@ func (d *Reader) readTag(st int) (i int, err error) {
 	switch tag {
 	case Literal:
 		d.state = 'l'
+		d.off = 0
 	case Copy:
-		d.off, i, err = d.roff(d.b, i, l)
+		d.off, i, err = d.Offset(d.b, i, l)
 		if err != nil {
 			return st, err
+		}
+		if d.off > len(d.block) {
+			return st, ErrOverflow
 		}
 
 		d.off = int(d.pos) - d.off
@@ -254,38 +269,31 @@ func (d *Reader) continueMetaTag(st int) (i int, err error) {
 	i = st
 	st--
 
-	if i == len(d.b) {
-		return st, eUnexpectedEOF
+	meta, l, i, err := d.Meta(d.b, i)
+	if err != nil {
+		return
 	}
 
-	meta := d.b[i]
-	i++
-
-	if d.boff == 0 && st == 0 && meta&MetaTagMask != MetaMagic && d.RequireMagic {
+	if d.boff == 0 && st == 0 && meta != MetaMagic && d.RequireMagic {
 		return st, ErrNoMagic
 	}
 
-	l, i, err := d.metaLen(d.b, i, meta)
-	//	println("meta", st-1, i, meta, l, i+l, len(d.b))
-	if err != nil {
-		return st, err
-	}
 	if i+l > len(d.b) {
-		return st, eUnexpectedEOF
+		return st, ErrEndOfBuffer
 	}
 
-	switch meta & MetaTagMask {
+	switch meta {
 	case MetaMagic:
 		if !bytes.Equal(d.b[i:i+l], []byte("eazy")) {
 			return st, ErrBadMagic
 		}
 	case MetaVer:
-		d.ver = int(d.b[i])
+		d.Ver = int(d.b[i])
 		if l != 1 {
 			return st, ErrOverflow
 		}
-		if d.ver > maxVer {
-			return st, fmt.Errorf("%w: %v", ErrUnsupportedVersion, d.ver)
+		if d.Ver > maxVer {
+			return st, fmt.Errorf("%w: %v", ErrUnsupportedVersion, d.Ver)
 		}
 	case MetaReset:
 		bs := int(d.b[i])
@@ -299,7 +307,7 @@ func (d *Reader) continueMetaTag(st int) (i int, err error) {
 			break
 		}
 
-		return st, fmt.Errorf("%w: %v", ErrUnsupportedMeta, meta)
+		return st, fmt.Errorf("%w: 0x%x", ErrUnsupportedMeta, meta)
 	}
 
 	i += l
@@ -312,7 +320,7 @@ func (d *Reader) checkLegacy(st int) (int, error) {
 		db := d.b[st:]
 
 		if len(db) < len(legacy)+1 && bytes.Equal(db, []byte(legacy)[:len(db)]) { //nolint:gocritic
-			return st, eUnexpectedEOF
+			return st, ErrEndOfBuffer
 		}
 
 		if len(db) >= len(legacy)+1 && bytes.Equal(db[:len(legacy)], []byte(legacy)) { //nolint:gocritic
@@ -363,9 +371,9 @@ func (d *Reader) reset(bs int) {
 	d.state = 0
 }
 
-func (d *Reader) tag0(b []byte, st int) (tag, l, i int, err error) {
+func (d Parser) Tag0(b []byte, st int) (tag, l, i int, err error) {
 	if st >= len(b) {
-		return 0, 0, st, eUnexpectedEOF
+		return 0, 0, st, ErrEndOfBuffer
 	}
 
 	i = st
@@ -377,21 +385,21 @@ func (d *Reader) tag0(b []byte, st int) (tag, l, i int, err error) {
 	switch l {
 	case Len1:
 		if i+1 > len(b) {
-			return tag, l, st, eUnexpectedEOF
+			return tag, l, st, ErrEndOfBuffer
 		}
 
 		l = int(b[i])
 		i++
 	case Len2:
 		if i+2 > len(b) {
-			return tag, l, st, eUnexpectedEOF
+			return tag, l, st, ErrEndOfBuffer
 		}
 
 		l = int(b[i])<<8 | int(b[i+1])
 		i += 2
 	case Len4:
 		if i+4 > len(b) {
-			return tag, l, st, eUnexpectedEOF
+			return tag, l, st, ErrEndOfBuffer
 		}
 
 		l = int(b[i])<<24 | int(b[i+1])<<16 | int(b[i+2])<<8 | int(b[i+3])
@@ -405,9 +413,9 @@ func (d *Reader) tag0(b []byte, st int) (tag, l, i int, err error) {
 	return tag, l, i, nil
 }
 
-func (d *Reader) roff0(b []byte, st, l int) (off, i int, err error) {
+func (d Parser) Offset0(b []byte, st, l int) (off, i int, err error) {
 	if st >= len(b) {
-		return 0, st, eUnexpectedEOF
+		return 0, st, ErrEndOfBuffer
 	}
 
 	i = st
@@ -418,21 +426,21 @@ func (d *Reader) roff0(b []byte, st, l int) (off, i int, err error) {
 	switch off {
 	case Off1:
 		if i+1 > len(b) {
-			return off, st, eUnexpectedEOF
+			return off, st, ErrEndOfBuffer
 		}
 
 		off = int(b[i])
 		i++
 	case Off2:
 		if i+2 > len(b) {
-			return off, st, eUnexpectedEOF
+			return off, st, ErrEndOfBuffer
 		}
 
 		off = int(b[i])<<8 | int(b[i+1])
 		i += 2
 	case Off4:
 		if i+4 > len(b) {
-			return off, st, eUnexpectedEOF
+			return off, st, ErrEndOfBuffer
 		}
 
 		off = int(b[i])<<24 | int(b[i+1])<<16 | int(b[i+2])<<8 | int(b[i+3])
@@ -448,13 +456,13 @@ func (d *Reader) roff0(b []byte, st, l int) (off, i int, err error) {
 	return off, i, nil
 }
 
-func (d *Reader) tag(b []byte, st int) (tag, l, i int, err error) {
-	if d.ver == 0 {
-		return d.tag0(b, st)
+func (d Parser) Tag(b []byte, st int) (tag, l, i int, err error) {
+	if d.Ver == 0 {
+		return d.Tag0(b, st)
 	}
 
 	if st >= len(b) {
-		return 0, 0, st, eUnexpectedEOF
+		return 0, 0, st, ErrEndOfBuffer
 	}
 
 	i = st
@@ -466,14 +474,14 @@ func (d *Reader) tag(b []byte, st int) (tag, l, i int, err error) {
 	switch l {
 	case Len1:
 		if i+1 > len(b) {
-			return tag, l, st, eUnexpectedEOF
+			return tag, l, st, ErrEndOfBuffer
 		}
 
 		l = Len1 + int(b[i])
 		i++
 	case Len2:
 		if i+2 > len(b) {
-			return tag, l, st, eUnexpectedEOF
+			return tag, l, st, ErrEndOfBuffer
 		}
 
 		l = Len1 + 0x100
@@ -481,7 +489,7 @@ func (d *Reader) tag(b []byte, st int) (tag, l, i int, err error) {
 		i += 2
 	case Len4:
 		if i+4 > len(b) {
-			return tag, l, st, eUnexpectedEOF
+			return tag, l, st, ErrEndOfBuffer
 		}
 
 		l = Len1 + 0x100 + 0x1_0000
@@ -496,33 +504,23 @@ func (d *Reader) tag(b []byte, st int) (tag, l, i int, err error) {
 	return tag, l, i, nil
 }
 
-func (d *Reader) roff(b []byte, st, l int) (off, i int, err error) {
-	if d.ver == 0 {
-		return d.roff0(b, st, l)
+func (d Parser) Offset(b []byte, st, l int) (off, i int, err error) {
+	if d.Ver == 0 {
+		return d.Offset0(b, st, l)
 	}
 
 	var long bool
 	i = st
 
 	if i == len(b) {
-		return 0, st, eUnexpectedEOF
+		return 0, st, ErrEndOfBuffer
 	}
 
-	off = int(b[i])
-	i++
-
-	long = off == OffLong
-
-	if long && i == len(b) {
-		return 0, st, eUnexpectedEOF
-	}
-
-	if long {
-		off = int(b[i])
+	if long = b[i] == OffLong; long {
 		i++
 	}
 
-	off, i, err = d.poff(b, i, off)
+	off, i, err = d.BasicOffset(b, i)
 	if err != nil {
 		return off, i, err
 	}
@@ -531,27 +529,30 @@ func (d *Reader) roff(b []byte, st, l int) (off, i int, err error) {
 		off += l
 	}
 
-	if off > len(d.block) {
-		return off, i, ErrOverflow
-	}
-
 	return off, i, nil
 }
 
-func (d *Reader) poff(b []byte, st, off int) (_, i int, err error) {
+func (d Parser) BasicOffset(b []byte, st int) (off, i int, err error) {
 	i = st
+
+	if i == len(b) {
+		return 0, st, ErrEndOfBuffer
+	}
+
+	off = int(b[i])
+	i++
 
 	switch off {
 	case Off1:
 		if i+1 > len(b) {
-			return off, st, eUnexpectedEOF
+			return off, st, ErrEndOfBuffer
 		}
 
 		off = Off1 + int(b[i])
 		i++
 	case Off2:
 		if i+2 > len(b) {
-			return off, st, eUnexpectedEOF
+			return off, st, ErrEndOfBuffer
 		}
 
 		off = Off1 + 0x100
@@ -559,7 +560,7 @@ func (d *Reader) poff(b []byte, st, off int) (_, i int, err error) {
 		i += 2
 	case Off4:
 		if i+4 > len(b) {
-			return off, st, eUnexpectedEOF
+			return off, st, ErrEndOfBuffer
 		}
 
 		off = Off1 + 0x100 + 0x1_0000
@@ -572,6 +573,37 @@ func (d *Reader) poff(b []byte, st, off int) (_, i int, err error) {
 	}
 
 	return off, i, nil
+}
+
+func (d Parser) Meta(b []byte, st int) (meta, l, i int, err error) {
+	i = st
+	if i == len(b) {
+		return 0, 0, st, ErrEndOfBuffer
+	}
+
+	meta = int(b[i])
+	i++
+
+	meta, l = meta&MetaTagMask, meta&MetaLenMask
+
+	if l < MetaLenWide {
+		l = 1 << l
+
+		return
+	}
+
+	if i == len(b) {
+		return 0, 0, st, ErrEndOfBuffer
+	}
+
+	l = int(b[i])
+	i++
+
+	if l < Off1 {
+		return
+	}
+
+	return 0, 0, st, ErrOverflow
 }
 
 func (d *Reader) more() (err error) {
@@ -626,11 +658,51 @@ func NewDumper(w io.Writer) *Dumper {
 	}
 }
 
+func (w *Dumper) ReadFrom(r io.Reader) (tot int64, err error) {
+	var keep, n, m int
+
+	p := make([]byte, 0x10000)
+
+	for {
+		n, err = r.Read(p[keep:])
+		if n == 0 {
+			break
+		}
+
+		tot += int64(n)
+
+		n += keep
+
+		m, err = w.Write(p[:n])
+		keep = copy(p, p[m:n])
+
+		if err != nil && err != ErrEndOfBuffer { //nolint:errorlint
+			break
+		}
+	}
+
+	if errors.Is(err, io.EOF) {
+		err = nil
+	}
+
+	if keep != 0 && err == nil {
+		err = io.ErrUnexpectedEOF
+	}
+
+	return tot, err
+}
+
 // Write implements io.Writer.
 func (w *Dumper) Write(p []byte) (i int, err error) { //nolint:gocognit
 	w.b = w.b[:0]
 
 	defer func() {
+		w.d.boff += int64(i)
+
+		if w.GlobalOffset >= 0 {
+			w.GlobalOffset += int64(i)
+		}
+
 		if w.Writer == nil {
 			return
 		}
@@ -641,7 +713,7 @@ func (w *Dumper) Write(p []byte) (i int, err error) { //nolint:gocognit
 		}
 	}()
 
-	var tag, l int
+	var tag, l, meta int
 
 	for i < len(p) {
 		if w.GlobalOffset >= 0 {
@@ -658,10 +730,15 @@ func (w *Dumper) Write(p []byte) (i int, err error) { //nolint:gocognit
 
 		if i != st {
 			w.b = hfmt.Appendf(w.b, "pad  %4x\n", i-st)
+
+			if w.Debug != nil && i != st {
+				w.Debug(w.d.boff+int64(st), w.d.pos, 'p', i-st, 0)
+			}
+
 			continue
 		}
 
-		tag, l, i, err = w.d.tag(p, i)
+		tag, l, i, err = w.d.Tag(p, i)
 		if err != nil {
 			return st, err
 		}
@@ -670,53 +747,56 @@ func (w *Dumper) Write(p []byte) (i int, err error) { //nolint:gocognit
 
 		switch {
 		case tag == Meta && l == 0:
-			if i == len(p) {
-				return st, eUnexpectedEOF
-			}
-
-			meta := p[i]
-			i++
-
-			l, i, err = w.d.metaLen(p, i, meta)
+			meta, l, i, err = w.d.Meta(p, i)
 			if err != nil {
-				return st, err
+				return
 			}
 
 			if i+l > len(p) {
-				return i, ErrOverflow
+				return i, ErrEndOfBuffer
+			}
+
+			if meta == MetaVer && l == 1 {
+				w.d.Ver = int(p[i])
 			}
 
 			w.b = hfmt.Appendf(w.b, "meta %2x %x  %q\n", meta>>3, l, p[i:i+l])
 
-			if meta == MetaVer && l == 1 {
-				w.d.ver = int(p[i])
+			if w.Debug != nil {
+				w.Debug(w.d.boff+int64(st), w.d.pos, 'm', l, meta)
 			}
 
 			i += l
 		case tag == Literal:
 			if i+l > len(p) {
-				return i, ErrOverflow
+				return i, ErrEndOfBuffer
 			}
 
 			w.b = hfmt.Appendf(w.b, "lit  %4x        %q\n", l, p[i:i+l])
+
+			if w.Debug != nil {
+				w.Debug(w.d.boff+int64(st), w.d.pos, 'l', l, 0)
+			}
 
 			i += l
 			w.d.pos += int64(l)
 		case tag == Copy:
 			var off int
 
-			off, i, err = w.d.roff(p, i, l)
+			off, i, err = w.d.Offset(p, i, l)
 			if err != nil {
 				return st, err
 			}
 
-			w.d.pos += int64(l)
+			w.b = hfmt.Appendf(w.b, "copy %4x  off %4x  %x\n", l, off, p[st:i])
 
-			w.b = hfmt.Appendf(w.b, "copy %4x  off %4x\n", l, off)
+			if w.Debug != nil {
+				w.Debug(w.d.boff+int64(st), w.d.pos, 'c', l, off)
+			}
+
+			w.d.pos += int64(l)
 		}
 	}
-
-	w.GlobalOffset += int64(i)
 
 	return i, err
 }
@@ -733,27 +813,4 @@ func (w *Dumper) Close() error {
 	w.b = hfmt.Appendf(w.b, "%6x  ", w.d.pos)
 
 	return nil
-}
-
-func (d *Reader) metaLen(b []byte, st int, meta byte) (l, i int, err error) {
-	i = st
-	l = int(meta &^ MetaTagMask)
-
-	if l == MetaLenWide {
-		if i == len(b) {
-			return 0, st, eUnexpectedEOF
-		}
-
-		l = int(b[i])
-		if l >= Off1 {
-			return l, st, ErrOverflow
-		}
-
-		l += MetaLenWide
-		i++
-	} else {
-		l = 1 << l
-	}
-
-	return l, i, nil
 }

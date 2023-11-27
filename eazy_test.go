@@ -92,15 +92,15 @@ func testLiteral(t *testing.T, ver int) {
 	t.Logf("*** read back ***")
 
 	n, err = r.Read(p[:10])
-	assert.Equal(t, 10, n)
 	assert.NoError(t, err)
+	assert.Equal(t, 10, n)
 	assert.Equal(t, []byte("very_first"), p[:n])
 
 	copy(p[:10], zeros)
 
 	n, err = r.Read(p[:10])
-	assert.Equal(t, 8, n)
 	assert.Equal(t, io.EOF, err)
+	assert.Equal(t, 8, n)
 	assert.Equal(t, []byte("_message"), p[:n])
 }
 
@@ -196,7 +196,7 @@ func TestBug1(t *testing.T) {
 
 	//	tl.Printw("first")
 
-	_, _ = b.Write([]byte{Meta, MetaReset | 0, 4}) //nolint:staticcheck
+	_, _ = b.Write([]byte{Meta, MetaReset | 0, 14}) //nolint:staticcheck
 	_, _ = b.Write([]byte{Literal | 3, 0x94, 0xa8, 0xfb, Copy | 9})
 
 	n, err := r.Read(p)
@@ -274,7 +274,7 @@ func TestPadding(t *testing.T) {
 }
 
 func TestZeroRegion(t *testing.T) {
-	b := []byte{Meta, MetaReset, 2, Copy | 10, 0}
+	b := []byte{Meta, MetaReset, 2, Meta, MetaVer, 1, Copy | 10, OffLong, 0}
 	r := NewReaderBytes(b)
 
 	p := make([]byte, 16)
@@ -480,7 +480,7 @@ func TestRunlenEncoder(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, 0x1005, n)
 
-	enclen := 0x1005 - Len1 - 0x100
+	enclen := 0x1004 - Len1 - 0x100
 
 	_, _ = exp.Write([]byte{Literal | 1, 0, Copy | Len2, byte(enclen), byte(enclen >> 8), OffLong, 1})
 
@@ -1045,7 +1045,7 @@ func nextIndex(b []byte, st int, s ...[]byte) (i int) {
 	return len(b)
 }
 
-func TestPrintTagEncoding(t *testing.T) {
+func TestPrintLengthEncoding(t *testing.T) {
 	f := func(t *testing.T, ver int) {
 		var b low.Buf
 		var w Writer
@@ -1068,8 +1068,8 @@ func TestPrintTagEncoding(t *testing.T) {
 			t.Logf("value %5d (0x%5[1]x) encoded as   % x", l, b)
 		}
 
-		var r Reader
-		r.ver = ver
+		var r Parser
+		r.Ver = ver
 
 		for _, b := range [][]byte{
 			{0x00},
@@ -1082,7 +1082,7 @@ func TestPrintTagEncoding(t *testing.T) {
 			{Len2, 0x01, 0x00},
 			{Len2, 0x00, 0x01},
 		} {
-			_, l, i, err := r.tag(b, 0)
+			_, l, i, err := r.Tag(b, 0)
 			assert.NoError(t, err)
 			assert.Equal(t, len(b), i)
 
@@ -1122,8 +1122,8 @@ func TestPrintOffsetEncoding(t *testing.T) {
 			t.Logf("value %5d (0x%5[1]x) encoded as   % x", off, b)
 		}
 
-		var r Reader
-		r.ver = ver
+		var r Parser
+		r.Ver = ver
 
 		for _, b := range [][]byte{
 			{0x00},
@@ -1135,8 +1135,9 @@ func TestPrintOffsetEncoding(t *testing.T) {
 			{Off2, 0x00, 0x00},
 			{Off2, 0x01, 0x00},
 			{Off2, 0x00, 0x01},
+			{0xfd, 0x03, 0x65}, // TestBug1
 		} {
-			off, i, err := r.poff(b, 1, int(b[0]))
+			off, i, err := r.Offset(b, 0, 0)
 			assert.NoError(t, err, "buf % x", b)
 			assert.Equal(t, len(b), i, "buf % x", b)
 

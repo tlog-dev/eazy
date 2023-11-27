@@ -5,7 +5,7 @@ Format is indended to compress logger output. Which leads to the following consi
 - Each portion of the data given to the encoder must be compressed immediately and written to underlaying writer.
 - Algorithm must be simple (reliable) to not break the using program. And it must be efficient to not limit using program performance.
 - The idea is that log messages are frequently only differ slightly.
-- Repeating sequences are typically up to 256 bytes long.
+- Repeating sequences are typically up to 379 bytes long.
 - Non-repeating sequences are typically up to 16 bytes long and up to infinity if stream can't be compressed.
 
 Snappy (based on LZ4) uses suitable algorithm.

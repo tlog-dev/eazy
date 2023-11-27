@@ -87,6 +87,7 @@ const (
 	// MetaXXHash32
 
 	MetaTagMask = 0b1111_1000 // tag | log(size)
+	MetaLenMask = 0b0000_0111
 	MetaLenWide = 1<<3 - 1
 )
 
