@@ -282,6 +282,12 @@ func (d *Reader) continueMetaTag(st int) (i int, err error) {
 		return st, ErrEndOfBuffer
 	}
 
+	reqLen := [3]int{4, 1, 1}
+
+	if j := meta >> 3; j < len(reqLen) && l != reqLen[j] {
+		return st, ErrUnsupportedMeta
+	}
+
 	switch meta {
 	case MetaMagic:
 		if !bytes.Equal(d.b[i:i+l], []byte("eazy")) {
@@ -289,9 +295,6 @@ func (d *Reader) continueMetaTag(st int) (i int, err error) {
 		}
 	case MetaVer:
 		d.Ver = int(d.b[i])
-		if l != 1 {
-			return st, ErrOverflow
-		}
 		if d.Ver > maxVer {
 			return st, fmt.Errorf("%w: %v", ErrUnsupportedVersion, d.Ver)
 		}
