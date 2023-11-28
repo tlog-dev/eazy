@@ -9,9 +9,19 @@ import (
 )
 
 type (
+	// Encoder is a low level encoder.
+	// Use Writer to just get data compressed.
+	//
+	// It's here to be able to reuse polished approaches.
+	Encoder struct {
+		Ver int
+	}
+
 	// Writer is eazy compressor.
 	Writer struct {
 		io.Writer
+
+		e Encoder
 
 		AppendMagic bool // Append FileMagic in the beginning of the stream. true by default.
 
@@ -25,8 +35,6 @@ type (
 
 		ht  []uint32
 		hsh uint
-
-		ver int
 	}
 )
 
@@ -91,8 +99,14 @@ const (
 	MetaLenWide = 1<<3 - 1
 )
 
-// Magic is the first bytes in a compressed stream.
-const Magic = "\x80\x02eazy"
+const (
+	// Magic is the first bytes in a compressed stream.
+	Magic = "\x80\x02eazy"
+
+	// Version is the latest supported format version.
+	// You'll need it for low level routines such as Encoder and Decoder.
+	Version = 1
+)
 
 var zeros = make([]byte, 1024)
 
@@ -109,7 +123,9 @@ func NewWriter(wr io.Writer, block, htable int) *Writer {
 	w := &Writer{
 		Writer:      wr,
 		AppendMagic: true,
-		ver:         1,
+		e: Encoder{
+			Ver: Version,
+		},
 	}
 
 	w.init(block, htable)
@@ -194,7 +210,7 @@ func (w *Writer) Write(p []byte) (done int, err error) {
 		}
 
 		// runlen encoding
-		if off >= 0 && i > done+off && w.ver >= 1 {
+		if off >= 0 && i > done+off && w.e.Ver >= 1 {
 			done, i = w.writeRunlen(p, done, done+off, i)
 
 			continue
@@ -365,9 +381,8 @@ func (w *Writer) writeRunlen(p []byte, done, st, i int) (nextdone, iend int) {
 	w.appendLiteral(p, done, ist)
 	w.copyData(p, done, ist)
 
-	w.b = w.appendTag(w.b, Copy, iend-ist)
-	w.b = append(w.b, OffLong)
-	w.b = w.appendOff(w.b, i-st)
+	w.b = w.e.Tag(w.b, Copy, iend-ist)
+	w.b = w.e.Offset(w.b, iend-ist, i-st)
 
 	w.copyData(p, ist, iend)
 
@@ -383,7 +398,7 @@ func (w *Writer) appendHeader(b []byte) []byte {
 		b = w.appendMagic(b)
 	}
 
-	b = append(b, Meta, MetaVer|0, byte(w.ver)) //nolint:staticcheck
+	b = append(b, Meta, MetaVer|0, byte(w.e.Ver)) //nolint:staticcheck
 
 	b = w.appendReset(b, len(w.block))
 
@@ -401,13 +416,13 @@ func (w *Writer) appendReset(b []byte, block int) []byte {
 }
 
 func (w *Writer) appendLiteral(d []byte, st, end int) {
-	w.b = w.appendTag(w.b, Literal, end-st)
+	w.b = w.e.Tag(w.b, Literal, end-st)
 	w.b = append(w.b, d[st:end]...)
 }
 
 func (w *Writer) appendCopy(st, end int) {
-	w.b = w.appendTag(w.b, Copy, end-st)
-	w.b = w.appendOff(w.b, int(w.pos)-end)
+	w.b = w.e.Tag(w.b, Copy, end-st)
+	w.b = w.e.Offset(w.b, end-st, int(w.pos)-st)
 }
 
 func (w *Writer) copyData(d []byte, st, end int) {
@@ -418,7 +433,7 @@ func (w *Writer) copyData(d []byte, st, end int) {
 	}
 }
 
-func (w *Writer) appendTag0(b []byte, tag byte, l int) []byte {
+func (e Encoder) tag0(b []byte, tag byte, l int) []byte {
 	switch {
 	case l < Len1:
 		return append(b, tag|byte(l))
@@ -433,7 +448,7 @@ func (w *Writer) appendTag0(b []byte, tag byte, l int) []byte {
 	}
 }
 
-func (w *Writer) appendOff0(b []byte, l int) []byte {
+func (e Encoder) off0(b []byte, l int) []byte {
 	switch {
 	case l < Off1:
 		return append(b, byte(l))
@@ -448,9 +463,9 @@ func (w *Writer) appendOff0(b []byte, l int) []byte {
 	}
 }
 
-func (w *Writer) appendTag(b []byte, tag byte, l int) []byte {
-	if w.ver == 0 {
-		return w.appendTag0(b, tag, l)
+func (e Encoder) Tag(b []byte, tag byte, l int) []byte {
+	if e.Ver == 0 {
+		return e.tag0(b, tag, l)
 	}
 
 	if l < Len1 {
@@ -478,34 +493,56 @@ func (w *Writer) appendTag(b []byte, tag byte, l int) []byte {
 	panic("too big length")
 }
 
-func (w *Writer) appendOff(b []byte, l int) []byte {
-	if w.ver == 0 {
-		return w.appendOff0(b, l)
+func (e Encoder) Offset(b []byte, l, off int) []byte {
+	if e.Ver == 0 {
+		return e.off0(b, off-l)
 	}
 
-	if l < Off1 {
-		return append(b, byte(l))
+	if off >= l {
+		off -= l
+	} else {
+		b = append(b, OffLong)
 	}
 
-	l -= Off1
-
-	if l < 0x100 {
-		return append(b, Off1, byte(l))
+	if off < Off1 {
+		return append(b, byte(off))
 	}
 
-	l -= 0x100
+	off -= Off1
 
-	if l < 0x1_0000 {
-		return append(b, Off2, byte(l), byte(l>>8))
+	if off < 0x100 {
+		return append(b, Off1, byte(off))
 	}
 
-	l -= 0x1_0000
+	off -= 0x100
 
-	if l <= 0x1_0000_0000 {
-		return append(b, Off4, byte(l), byte(l>>8), byte(l>>16), byte(l>>24))
+	if off < 0x1_0000 {
+		return append(b, Off2, byte(off), byte(off>>8))
+	}
+
+	off -= 0x1_0000
+
+	if off <= 0x1_0000_0000 {
+		return append(b, Off4, byte(off), byte(off>>8), byte(off>>16), byte(off>>24))
 	}
 
 	panic("too big offset")
+}
+
+func (e Encoder) Meta(b []byte, meta, l int) []byte {
+	if l > 0 && l <= 64 && l&(l-1) == 0 {
+		l = bits.Len(uint(l)) - 1
+		return append(b, Meta, byte(meta)|byte(l))
+	}
+
+	if l < Off1 {
+		return append(b, Meta, byte(meta)|MetaLenWide, byte(l))
+	}
+
+	b = append(b, Meta, byte(meta)|MetaLenWide)
+	b = e.Offset(b, 0, l)
+
+	return b
 }
 
 //nolint:unused,deadcode,goprintffuncname

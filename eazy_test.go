@@ -74,7 +74,7 @@ func testLiteral(t *testing.T, ver int) {
 	var buf low.Buf
 
 	w := NewWriter(&buf, B, B>>1)
-	w.ver = ver
+	w.e.Ver = ver
 	w.AppendMagic = false
 
 	n, err := w.Write([]byte("very_first_message"))
@@ -119,7 +119,7 @@ func testCopy(t *testing.T, ver int) {
 	var buf low.Buf
 
 	w := NewWriter(&buf, B, B>>1)
-	w.ver = ver
+	w.e.Ver = ver
 	w.AppendMagic = false
 
 	st := 0
@@ -172,7 +172,7 @@ func testCopy(t *testing.T, ver int) {
 	var exp low.Buf
 
 	wexp := NewWriter(&exp, B, B>>1)
-	wexp.ver = ver
+	wexp.e.Ver = ver
 	wexp.AppendMagic = false
 
 	n, err = wexp.Write([]byte("prefix_1234_suffix"))
@@ -626,7 +626,7 @@ func testLongLenOff(t *testing.T, ver int) {
 	var b low.BufReader
 
 	w := NewWriter(&b, 1<<18, 1<<16)
-	w.ver = ver
+	w.e.Ver = ver
 
 	rnd := rand.New(rand.NewSource(0))
 
@@ -678,7 +678,7 @@ func testOnFile(t *testing.T, ver int) {
 	var buf []byte
 
 	w := NewWriter(&enc, 1024, 512)
-	w.ver = ver
+	w.e.Ver = ver
 
 	r := NewReader(&enc)
 
@@ -1048,8 +1048,7 @@ func nextIndex(b []byte, st int, s ...[]byte) (i int) {
 func TestPrintLengthEncoding(t *testing.T) {
 	f := func(t *testing.T, ver int) {
 		var b low.Buf
-		var w Writer
-		w.ver = ver
+		e := Encoder{Ver: ver}
 
 		for _, l := range []int{
 			1,
@@ -1063,13 +1062,12 @@ func TestPrintLengthEncoding(t *testing.T) {
 			Len1 + 256 + 0x10000 - 1,
 			Len1 + 256 + 0x10000,
 		} {
-			b = w.appendTag(b[:0], Literal, l)
+			b = e.Tag(b[:0], Literal, l)
 
 			t.Logf("value %5d (0x%5[1]x) encoded as   % x", l, b)
 		}
 
-		var r Parser
-		r.Ver = ver
+		d := Decoder{Ver: ver}
 
 		for _, b := range [][]byte{
 			{0x00},
@@ -1082,7 +1080,7 @@ func TestPrintLengthEncoding(t *testing.T) {
 			{Len2, 0x01, 0x00},
 			{Len2, 0x00, 0x01},
 		} {
-			_, l, i, err := r.Tag(b, 0)
+			_, l, i, err := d.Tag(b, 0)
 			assert.NoError(t, err)
 			assert.Equal(t, len(b), i)
 
@@ -1102,8 +1100,7 @@ func TestPrintLengthEncoding(t *testing.T) {
 func TestPrintOffsetEncoding(t *testing.T) {
 	f := func(t *testing.T, ver int) {
 		var b low.Buf
-		var w Writer
-		w.ver = ver
+		e := Encoder{Ver: ver}
 
 		for _, off := range []int{
 			1,
@@ -1117,13 +1114,12 @@ func TestPrintOffsetEncoding(t *testing.T) {
 			Off1 + 256 + 0x10000 - 1,
 			Off1 + 256 + 0x10000,
 		} {
-			b = w.appendOff(b[:0], off)
+			b = e.Offset(b[:0], 0, off)
 
 			t.Logf("value %5d (0x%5[1]x) encoded as   % x", off, b)
 		}
 
-		var r Parser
-		r.Ver = ver
+		d := Decoder{Ver: ver}
 
 		for _, b := range [][]byte{
 			{0x00},
@@ -1137,7 +1133,7 @@ func TestPrintOffsetEncoding(t *testing.T) {
 			{Off2, 0x00, 0x01},
 			{0xfd, 0x03, 0x65}, // TestBug1
 		} {
-			off, i, err := r.Offset(b, 0, 0)
+			off, i, err := d.Offset(b, 0, 0)
 			assert.NoError(t, err, "buf % x", b)
 			assert.Equal(t, len(b), i, "buf % x", b)
 
