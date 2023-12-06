@@ -106,6 +106,8 @@ const (
 	// Version is the latest supported format version.
 	// You'll need it for low level routines such as Encoder and Decoder.
 	Version = 1
+
+	minCopyChunk = 6
 )
 
 var zeros = make([]byte, 1024)
@@ -281,7 +283,7 @@ func (w *Writer) Write(p []byte) (done int, err error) {
 			iend -= diff
 		}
 
-		if end-st <= 4 {
+		if end-st < minCopyChunk {
 			i++
 			continue
 		}
@@ -358,7 +360,7 @@ func (w *Writer) writeRunlen(p []byte, done, st, i int) (nextdone, iend int) {
 
 	jb++
 
-	if jf-jb <= 4 {
+	if jf-jb < minCopyChunk {
 		return done, i + 1
 	}
 

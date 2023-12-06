@@ -547,6 +547,11 @@ func (d Decoder) basicOffset(b []byte, st int) (off, i int, err error) {
 	off = int(b[i])
 	i++
 
+	// this is slower than 3 ifs in each switch case
+	//	if off >= Off1 && i+1<<(off-Off1) > len(b) {
+	//		return off, st, ErrEndOfBuffer
+	//	}
+
 	switch off {
 	case Off1:
 		if i+1 > len(b) {
@@ -787,13 +792,18 @@ func (w *Dumper) Write(p []byte) (i int, err error) { //nolint:gocognit
 			w.r.pos += int64(l)
 		case tag == Copy:
 			var off int
+			long := ""
+
+			if i < len(p) && p[i] == OffLong {
+				long = "  (long)"
+			}
 
 			off, i, err = w.r.d.Offset(p, i, l)
 			if err != nil {
 				return st, err
 			}
 
-			w.b = hfmt.Appendf(w.b, "copy %4x  off %4x\n", l, off)
+			w.b = hfmt.Appendf(w.b, "copy %4x  off %4x%s\n", l, off, long)
 
 			if w.Debug != nil {
 				w.Debug(w.r.boff+int64(st), w.r.pos, 'c', l, off)

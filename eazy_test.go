@@ -455,9 +455,9 @@ func TestRunlenEncoder(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, 1, n)
 
-	n, err = w.Write([]byte("aaaaaabcbcbcbxx"))
+	n, err = w.Write([]byte("aaaaaaabcbcbcbcbxx"))
 	assert.NoError(t, err)
-	assert.Equal(t, 15, n)
+	assert.Equal(t, 18, n)
 
 	var exp low.Buf
 
@@ -465,8 +465,8 @@ func TestRunlenEncoder(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, 1, n)
 
-	_, _ = exp.Write([]byte{Literal | 1, 'a', Copy | 5, OffLong, 1})
-	_, _ = exp.Write([]byte{Literal | 2, 'b', 'c', Copy | 5, OffLong, 2})
+	_, _ = exp.Write([]byte{Literal | 1, 'a', Copy | 6, OffLong, 1})
+	_, _ = exp.Write([]byte{Literal | 2, 'b', 'c', Copy | 7, OffLong, 2})
 	_, _ = exp.Write([]byte{Literal | 2, 'x', 'x'})
 
 	if !assert.Equal(t, Dump(exp), Dump(b)) {
