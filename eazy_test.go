@@ -1114,7 +1114,7 @@ func TestPrintOffsetEncoding(t *testing.T) {
 			Off1 + 256 + 0x10000 - 1,
 			Off1 + 256 + 0x10000,
 		} {
-			b = e.Offset(b[:0], 0, off)
+			b = e.Offset(b[:0], off, 0)
 
 			t.Logf("value %5d (0x%5[1]x) encoded as   % x", off, b)
 		}

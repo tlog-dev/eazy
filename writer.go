@@ -382,7 +382,7 @@ func (w *Writer) writeRunlen(p []byte, done, st, i int) (nextdone, iend int) {
 	w.copyData(p, done, ist)
 
 	w.b = w.e.Tag(w.b, Copy, iend-ist)
-	w.b = w.e.Offset(w.b, iend-ist, i-st)
+	w.b = w.e.Offset(w.b, i-st, iend-ist)
 
 	w.copyData(p, ist, iend)
 
@@ -422,7 +422,7 @@ func (w *Writer) appendLiteral(d []byte, st, end int) {
 
 func (w *Writer) appendCopy(st, end int) {
 	w.b = w.e.Tag(w.b, Copy, end-st)
-	w.b = w.e.Offset(w.b, end-st, int(w.pos)-st)
+	w.b = w.e.Offset(w.b, int(w.pos)-st, end-st)
 }
 
 func (w *Writer) copyData(d []byte, st, end int) {
@@ -493,7 +493,7 @@ func (e Encoder) Tag(b []byte, tag byte, l int) []byte {
 	panic("too big length")
 }
 
-func (e Encoder) Offset(b []byte, l, off int) []byte {
+func (e Encoder) Offset(b []byte, off, l int) []byte {
 	if e.Ver == 0 {
 		return e.off0(b, off-l)
 	}
@@ -540,7 +540,7 @@ func (e Encoder) Meta(b []byte, meta, l int) []byte {
 	}
 
 	b = append(b, Meta, byte(meta)|MetaLenWide)
-	b = e.Offset(b, 0, l)
+	b = e.Offset(b, l, 0)
 
 	return b
 }
