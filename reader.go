@@ -59,6 +59,7 @@ type (
 
 var (
 	ErrEndOfBuffer        = stderrors.New("unexpected end of buffer")
+	ErrEndOfStream        = stderrors.New("end of stream")
 	ErrBadMagic           = stderrors.New("bad magic")
 	ErrNoMagic            = stderrors.New("no magic")
 	ErrUnsupportedVersion = stderrors.New("unsupported file format version")
@@ -284,7 +285,7 @@ func (r *Reader) continueMetaTag(st int) (i int, err error) {
 		return st, ErrEndOfBuffer
 	}
 
-	reqLen := [3]int{4, 1, 1}
+	reqLen := [...]int{4, 1, 1, 1}
 
 	if j := meta >> 3; j < len(reqLen) && l != reqLen[j] {
 		return st, ErrUnsupportedMeta
@@ -307,6 +308,8 @@ func (r *Reader) continueMetaTag(st int) (i int, err error) {
 		}
 
 		r.reset(bs)
+	case MetaEndOfStream:
+		return i + l, ErrEndOfStream
 	default:
 		if r.SkipUnsupportedMeta {
 			break

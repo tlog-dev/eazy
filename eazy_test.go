@@ -345,6 +345,55 @@ func TestReset(t *testing.T) {
 	assert.Equal(t, "fifth_message", string(p[:n]))
 }
 
+func TestEndOfStream(t *testing.T) {
+	const B = 32
+
+	var buf low.Buf
+
+	w := NewWriter(&buf, B, B>>1)
+	//	w.e.Ver = ver
+	w.AppendMagic = false
+
+	_, err := w.Write([]byte("message1"))
+	assert.NoError(t, err)
+
+	err = w.WriteEndOfStream()
+	assert.NoError(t, err)
+
+	_, err = w.Write([]byte("qwessage2"))
+	assert.NoError(t, err)
+
+	r := NewReaderBytes(buf)
+	p := make([]byte, 20)
+
+	n, err := r.Read(p)
+	assert.ErrorIs(t, err, ErrEndOfStream)
+	assert.Equal(t, []byte("message1"), p[:n])
+
+	n, err = r.Read(p)
+	assert.ErrorIs(t, err, io.EOF)
+	assert.Equal(t, []byte("qwessage2"), p[:n])
+
+	//
+
+	buf = buf[:0]
+
+	w.Reset(&buf)
+
+	err = w.WriteEndOfStream()
+	assert.NoError(t, err)
+
+	r.ResetBytes(buf)
+
+	n, err = r.Read(p)
+	assert.ErrorIs(t, err, ErrEndOfStream)
+	assert.Equal(t, 0, n)
+
+	n, err = r.Read(p)
+	assert.ErrorIs(t, err, io.EOF)
+	assert.Equal(t, 0, n)
+}
+
 func TestReaderRequireMagic(t *testing.T) {
 	var b low.BufReader
 

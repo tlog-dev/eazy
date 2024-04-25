@@ -86,9 +86,10 @@ const (
 const (
 	// len: 1 2 4 8  16 32 64 LenWide
 
-	MetaMagic = iota << 3 // 4: "eazy"
-	MetaVer               // 1: ver
-	MetaReset             // 1: block_size_log
+	MetaMagic       = iota << 3 // 4: "eazy"
+	MetaVer                     // 1: ver
+	MetaReset                   // 1: block_size_log
+	MetaEndOfStream             // 1: 0
 
 	//nolint:godot
 	// MetaCRC32IEEE
@@ -330,6 +331,18 @@ func (w *Writer) WriteHeader() error {
 	}
 
 	w.b = w.appendHeader(w.b[:0])
+
+	return w.write()
+}
+
+func (w *Writer) WriteEndOfStream() error {
+	w.b = w.b[:0]
+
+	if w.written == 0 {
+		w.b = w.appendHeader(w.b)
+	}
+
+	w.b = append(w.b, Meta, MetaEndOfStream, 0)
 
 	return w.write()
 }
