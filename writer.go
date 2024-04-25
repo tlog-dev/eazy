@@ -545,6 +545,10 @@ func (e Encoder) Offset(b []byte, off, l int) []byte {
 }
 
 func (e Encoder) Meta(b []byte, meta, l int) []byte {
+	if meta&^MetaTagMask != 0 {
+		panic(meta)
+	}
+
 	if l > 0 && l <= 64 && l&(l-1) == 0 {
 		l = bits.Len(uint(l)) - 1
 		return append(b, Meta, byte(meta)|byte(l))

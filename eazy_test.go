@@ -640,12 +640,16 @@ func TestLongMeta(t *testing.T) {
 	_, err := w.Write([]byte{1})
 	assert.NoError(t, err)
 
-	b = append(b, Meta, MetaTagMask|MetaLenWide, 128-MetaLenWide)
+	b = Encoder{}.Meta(b, MetaTagMask-1<<3, 4)
+	b = append(b, 1, 2, 3, 4)
+
+	b = Encoder{}.Meta(b, MetaTagMask, 128)
 
 	st := len(b)
 	b = append(b, make([]byte, 128)...)
 
 	copy(b[st:], "0123456789")
+	copy(b[len(b)-10:], "9876543210")
 
 	_, err = w.Write([]byte{2})
 	assert.NoError(t, err)
@@ -660,6 +664,10 @@ func TestLongMeta(t *testing.T) {
 	n, err := r.Read(p)
 	assert.ErrorIs(t, err, io.EOF)
 	assert.Equal(t, []byte{1, 2}, p[:n])
+
+	if t.Failed() {
+		t.Logf("dump\n%s", hex.Dump(b))
+	}
 }
 
 func TestLongLenOff(t *testing.T) {
