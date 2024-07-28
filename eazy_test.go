@@ -26,7 +26,7 @@ type (
 )
 
 var (
-	fileFlag       = flag.String("test-file", "log.tlog", "file with tlog logs")
+	fileFlag       = flag.String("bench-tlog", "log.tlog", "file with tlog logs")
 	ratioEstimator = flag.Int("ratio-estimator", 0, "ratio estimator iterations to run")
 )
 
@@ -518,26 +518,55 @@ func TestRunlenEncoder(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, 1, n)
 
+	off := len(exp)
+
 	_, _ = exp.Write([]byte{Literal | 1, 'a', Copy | 6, OffLong, 1})
 	_, _ = exp.Write([]byte{Literal | 2, 'b', 'c', Copy | 7, OffLong, 2})
 	_, _ = exp.Write([]byte{Literal | 2, 'x', 'x'})
 
-	if !assert.Equal(t, Dump(exp), Dump(b)) {
+	if !assert.Equal(t, Dump(exp[off:]), Dump(b[off:])) {
 		t.Logf("dump\n%s", Dump(b))
 		return
 	}
 
 	//
 
-	n, err = w.Write(make([]byte, 0x1005))
+	data := make([]byte, 0x1005)
+
+	for i := 0; i < len(data); {
+		i += copy(data[i:], "00000000000000000000000000000000")
+	}
+
+	n, err = w.Write(data)
 	assert.NoError(t, err)
 	assert.Equal(t, 0x1005, n)
 
-	enclen := 0x1004 - Len1 - 0x100
+	off = len(exp)
+	enclen := 0x1005 - 1 - Len1 - 0x100
 
-	_, _ = exp.Write([]byte{Literal | 1, 0, Copy | Len2, byte(enclen), byte(enclen >> 8), OffLong, 1})
+	_, _ = exp.Write([]byte{Literal | 1, '0', Copy | Len2, byte(enclen), byte(enclen >> 8), OffLong, 1})
 
-	if !assert.Equal(t, Dump(exp), Dump(b)) {
+	if !assert.Equal(t, Dump(exp[off:]), Dump(b[off:])) {
+		t.Logf("dump\n%s", Dump(b))
+		return
+	}
+
+	//
+
+	for i := 0; i < len(data); {
+		i += copy(data[i:], zeros)
+	}
+
+	n, err = w.Write(data)
+	assert.NoError(t, err)
+	assert.Equal(t, 0x1005, n)
+
+	off = len(exp)
+	enclen = 0x1005 - Len1 - 0x100
+
+	_, _ = exp.Write([]byte{Copy | Len2, byte(enclen), byte(enclen >> 8), OffLong, 0})
+
+	if !assert.Equal(t, Dump(exp[off:]), Dump(b[off:])) {
 		t.Logf("dump\n%s", Dump(b))
 		return
 	}
@@ -870,7 +899,7 @@ func TestOnFileRatioEstimator(t *testing.T) {
 	}
 }
 
-const BlockSize, HTSize = 1024 * 1024, 2 * 1024
+const BlockSize, HTSize = 128 * 1024, 1024
 
 func BenchmarkCompressFile(b *testing.B) {
 	err := loadTestFile(b, *fileFlag)

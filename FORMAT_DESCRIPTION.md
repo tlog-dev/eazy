@@ -137,7 +137,7 @@ const (
 []byte{Off2, 5, 0} // 0xfd 0x05 0x00 // 513
 ```
 
-As all of our offsets point to past bytes we can store `offset - length` instead.
+As most of our offsets point to past bytes we can store `offset - length` instead.
 Which saves a few bytes on offset encoding length.
 So we actually store the offset to the byte following the referenced sequence.
 And the start of that sequence is found substracting its length from the offset.
@@ -172,6 +172,7 @@ So the last case encoded as
 ```
 
 As copying from offset 0 doesn't make much sence it's used as a special case to encode zero bytes.
+Logically we copy not yet written byte from output stream which is consider is x00.
 
 ```
 []byte{Copy | 15, OffLong, 0} // emit 15 zero bytes
@@ -212,7 +213,8 @@ const (
 	MetaReset             // 1: block_size_log2
 
 	MetaTagMask = 0b1111_1000 // tag | log(size)
-	MetaLenWide = 1<<3 - 1
+	MetaLenMask = 0b0000_0111
+	MetaLenWide = MetaLenMask
 )
 
 []byte{Copy | 0, MetaMagic | 2, 'e', 'a', 'z', 'y'} // eazy magic sequence // encoded data size is 2, which decodes to 1<<2 == 4 bytes

@@ -97,7 +97,7 @@ const (
 
 	MetaTagMask = 0b1111_1000 // tag | log(size)
 	MetaLenMask = 0b0000_0111
-	MetaLenWide = 1<<3 - 1
+	MetaLenWide = MetaLenMask
 )
 
 const (
@@ -204,7 +204,7 @@ func (w *Writer) Write(p []byte) (done int, err error) {
 		pos := int(w.ht[h])
 		w.ht[h] = uint32(start + i)
 
-		off := pos - int(w.pos)
+		off := pos - int(w.pos) // forward offset
 
 		if -off > len(w.block) {
 			i++
@@ -236,7 +236,7 @@ func (w *Writer) Write(p []byte) (done int, err error) {
 		iend := i
 		end := pos
 
-		for iend < len(p)-8 && end&w.mask < len(w.block)-8 && equal8(p[iend:], w.block[end&w.mask:]) {
+		for iend+8 < len(p) && end&w.mask+8 < len(w.block) && equal8(p[iend:], w.block[end&w.mask:]) {
 			iend += 8
 			end += 8
 		}
@@ -357,7 +357,45 @@ func (w *Writer) write() (err error) {
 	return err
 }
 
+func (w *Writer) writeZeros(p []byte, done, i int) (nextdone, iend int) {
+	iend = i
+
+	for iend+8 < len(p) && equal8(p[iend:], zeros) {
+		iend += 8
+	}
+
+	for iend < len(p) && p[iend] == 0 {
+		iend++
+	}
+
+	for i > done && p[i-1] == 0 {
+		i--
+	}
+
+	if iend-i < minCopyChunk {
+		return done, i + 1
+	}
+
+	//	dpr("zeros %4x %4x %4x\n", done, i, iend)
+
+	if done != i {
+		w.appendLiteral(p, done, i)
+		w.copyData(p, done, i)
+	}
+
+	w.b = w.e.Tag(w.b, Copy, iend-i)
+	w.b = append(w.b, OffLong, 0)
+
+	w.copyData(p, i, iend)
+
+	return iend, iend
+}
+
 func (w *Writer) writeRunlen(p []byte, done, st, i int) (nextdone, iend int) {
+	if st+8 < len(p) && equal8(p[st:], zeros) {
+		return w.writeZeros(p, done, st)
+	}
+
 	jf := 0
 
 	for i+jf < len(p) && p[st+jf] == p[i+jf] {
@@ -376,15 +414,15 @@ func (w *Writer) writeRunlen(p []byte, done, st, i int) (nextdone, iend int) {
 		return done, i + 1
 	}
 
-	if i-st > len(w.block) {
+	if i-st >= len(w.block)-8 {
 		//	dpr("cut %4x %4x %4x %4x %4x\n", done, st, i, jb, jf)
 
-		diff := st - done
+		iend := done + i - st
 
-		w.appendLiteral(p, done, i-diff)
-		w.copyData(p, done, i-diff)
+		w.appendLiteral(p, done, iend)
+		w.copyData(p, done, iend)
 
-		return i - diff, i - diff
+		return iend, iend
 	}
 
 	//	dpr("runlen %4x %4x %4x %4x %4x\n", done, st, i, jb, jf)
