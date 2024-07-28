@@ -63,13 +63,6 @@ var (
 	ErrOverflow           = errors.New("length/offset overflow")
 )
 
-const (
-	legacy1 = "\x00\x03tlz\x00\x13000\x00\x20"
-	legacy2 = "\x00\x02eazy\x00\x08"
-)
-
-const maxVer = 1
-
 // NewReader creates new decompressor reading from r.
 func NewReader(r io.Reader) *Reader {
 	return &Reader{
@@ -206,11 +199,6 @@ func (r *Reader) read(p []byte, st int) (n, i int, err error) {
 }
 
 func (r *Reader) readTag(st int) (i int, err error) {
-	st, err = r.checkLegacy(st)
-	if err != nil {
-		return st, err
-	}
-
 	i = st
 
 	// skip zero padding
@@ -294,7 +282,7 @@ func (r *Reader) continueMetaTag(st int) (i int, err error) {
 		}
 	case MetaVer:
 		r.d.Ver = int(r.b[i])
-		if r.d.Ver > maxVer {
+		if r.d.Ver > Version {
 			return st, fmt.Errorf("%w: %v", ErrUnsupportedVersion, r.d.Ver)
 		}
 	case MetaReset:
@@ -319,43 +307,6 @@ func (r *Reader) continueMetaTag(st int) (i int, err error) {
 	return i, nil
 }
 
-func (r *Reader) checkLegacy(st int) (int, error) {
-	check := func(legacy string, st int) (int, error) {
-		db := r.b[st:]
-
-		if len(db) < len(legacy)+1 && bytes.Equal(db, []byte(legacy)[:len(db)]) { //nolint:gocritic
-			return st, ErrShortBuffer
-		}
-
-		if len(db) >= len(legacy)+1 && bytes.Equal(db[:len(legacy)], []byte(legacy)) { //nolint:gocritic
-			i := len(legacy)
-
-			bs := int(db[i])
-			i++
-
-			r.reset(bs)
-
-			return i, nil
-		}
-
-		return st, nil
-	}
-
-	i := st
-
-	i, err := check(legacy1, i)
-	if err != nil {
-		return i, err
-	}
-
-	i, err = check(legacy2, i)
-	if err != nil {
-		return i, err
-	}
-
-	return i, nil
-}
-
 func (r *Reader) reset(bs int) {
 	bs = 1 << bs
 
@@ -375,96 +326,7 @@ func (r *Reader) reset(bs int) {
 	r.state = 0
 }
 
-func (d Decoder) tag0(b []byte, st int) (tag, l, i int, err error) {
-	if st >= len(b) {
-		return 0, 0, st, ErrShortBuffer
-	}
-
-	i = st
-
-	tag = int(b[i]) & TagMask
-	l = int(b[i]) & TagLenMask
-	i++
-
-	switch l {
-	case Len1:
-		if i+1 > len(b) {
-			return tag, l, st, ErrShortBuffer
-		}
-
-		l = int(b[i])
-		i++
-	case Len2:
-		if i+2 > len(b) {
-			return tag, l, st, ErrShortBuffer
-		}
-
-		l = int(b[i])<<8 | int(b[i+1])
-		i += 2
-	case Len4:
-		if i+4 > len(b) {
-			return tag, l, st, ErrShortBuffer
-		}
-
-		l = int(b[i])<<24 | int(b[i+1])<<16 | int(b[i+2])<<8 | int(b[i+3])
-		i += 4
-	case Len8:
-		return tag, l, st, ErrOverflow
-	default:
-		// l is embedded
-	}
-
-	return tag, l, i, nil
-}
-
-func (d Decoder) offset0(b []byte, st, l int) (off, i int, err error) {
-	if st >= len(b) {
-		return 0, st, ErrShortBuffer
-	}
-
-	i = st
-
-	off = int(b[i])
-	i++
-
-	switch off {
-	case Off1:
-		if i+1 > len(b) {
-			return off, st, ErrShortBuffer
-		}
-
-		off = int(b[i])
-		i++
-	case Off2:
-		if i+2 > len(b) {
-			return off, st, ErrShortBuffer
-		}
-
-		off = int(b[i])<<8 | int(b[i+1])
-		i += 2
-	case Off4:
-		if i+4 > len(b) {
-			return off, st, ErrShortBuffer
-		}
-
-		off = int(b[i])<<24 | int(b[i+1])<<16 | int(b[i+2])<<8 | int(b[i+3])
-		i += 4
-	case Off8:
-		return off, st, ErrOverflow
-	default:
-		// off is embedded
-	}
-
-	off += l
-
-	return off, i, nil
-}
-
 func (d Decoder) Tag(b []byte, st int) (tag, l, i int, err error) {
-	if d.Ver == 0 {
-		return d.tag0(b, st)
-	}
-
 	if st >= len(b) {
 		return 0, 0, st, ErrShortBuffer
 	}
@@ -509,10 +371,6 @@ func (d Decoder) Tag(b []byte, st int) (tag, l, i int, err error) {
 }
 
 func (d Decoder) Offset(b []byte, st, l int) (off, i int, err error) {
-	if d.Ver == 0 {
-		return d.offset0(b, st, l)
-	}
-
 	var long bool
 	i = st
 

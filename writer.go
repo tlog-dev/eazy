@@ -105,7 +105,7 @@ const (
 	Magic = "\x80\x02eazy"
 
 	// Version is the latest supported format version.
-	Version = 1
+	Version = 0
 
 	minCopyChunk = 6
 )
@@ -212,7 +212,7 @@ func (w *Writer) Write(p []byte) (done int, err error) {
 		}
 
 		// runlen encoding
-		if off >= 0 && i > done+off && w.e.Ver >= 1 {
+		if off >= 0 && i > done+off {
 			done, i = w.writeRunlen(p, done, done+off, i)
 
 			continue
@@ -450,7 +450,9 @@ func (w *Writer) appendHeader(b []byte) []byte {
 		b = w.appendMagic(b)
 	}
 
-	b = append(b, Meta, MetaVer|0, byte(w.e.Ver)) //nolint:staticcheck
+	if w.e.Ver != 0 {
+		b = append(b, Meta, MetaVer|0, byte(w.e.Ver)) //nolint:staticcheck
+	}
 
 	b = w.appendReset(b, len(w.block))
 
@@ -485,41 +487,7 @@ func (w *Writer) copyData(d []byte, st, end int) {
 	}
 }
 
-func (e Encoder) tag0(b []byte, tag byte, l int) []byte {
-	switch {
-	case l < Len1:
-		return append(b, tag|byte(l))
-	case l <= 0xff:
-		return append(b, tag|Len1, byte(l))
-	case l <= 0xffff:
-		return append(b, tag|Len2, byte(l>>8), byte(l))
-	case l <= 0xffff_ffff:
-		return append(b, tag|Len4, byte(l>>24), byte(l>>16), byte(l>>8), byte(l))
-	default:
-		return append(b, tag|Len8, byte(l>>56), byte(l>>48), byte(l>>40), byte(l>>32), byte(l>>24), byte(l>>16), byte(l>>8), byte(l))
-	}
-}
-
-func (e Encoder) off0(b []byte, l int) []byte {
-	switch {
-	case l < Off1:
-		return append(b, byte(l))
-	case l <= 0xff:
-		return append(b, Off1, byte(l))
-	case l <= 0xffff:
-		return append(b, Off2, byte(l>>8), byte(l))
-	case l <= 0xffff_ffff:
-		return append(b, Off4, byte(l>>24), byte(l>>16), byte(l>>8), byte(l))
-	default:
-		return append(b, Off8, byte(l>>56), byte(l>>48), byte(l>>40), byte(l>>32), byte(l>>24), byte(l>>16), byte(l>>8), byte(l))
-	}
-}
-
 func (e Encoder) Tag(b []byte, tag byte, l int) []byte {
-	if e.Ver == 0 {
-		return e.tag0(b, tag, l)
-	}
-
 	if l < Len1 {
 		return append(b, tag|byte(l))
 	}
@@ -546,10 +514,6 @@ func (e Encoder) Tag(b []byte, tag byte, l int) []byte {
 }
 
 func (e Encoder) Offset(b []byte, off, l int) []byte {
-	if e.Ver == 0 {
-		return e.off0(b, off-l)
-	}
-
 	if off >= l {
 		off -= l
 	} else {

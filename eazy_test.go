@@ -64,12 +64,7 @@ func TestMagic(t *testing.T) {
 }
 
 func TestLiteral(t *testing.T) {
-	t.Run("ver1", func(t *testing.T) { testLiteral(t, 1) })
-	if t.Failed() {
-		return
-	}
-
-	t.Run("ver0", func(t *testing.T) { testLiteral(t, 0) })
+	testAllVersions(t, testLiteral)
 }
 
 func testLiteral(t *testing.T, ver int) {
@@ -109,12 +104,7 @@ func testLiteral(t *testing.T, ver int) {
 }
 
 func TestCopy(t *testing.T) {
-	t.Run("ver1", func(t *testing.T) { testCopy(t, 1) })
-	if t.Failed() {
-		return
-	}
-
-	t.Run("ver0", func(t *testing.T) { testCopy(t, 0) })
+	testAllVersions(t, testCopy)
 }
 
 func testCopy(t *testing.T, ver int) {
@@ -212,8 +202,8 @@ func TestBug1(t *testing.T) {
 	_, _ = b.Write([]byte{0xfd, 0x03, 0x65}) // offset
 
 	n, err = r.Read(p)
-	assert.ErrorIs(t, err, io.EOF)
-	assert.Equal(t, 9, n)
+	assert.ErrorIs(t, err, ErrOverflow)
+	assert.Equal(t, 0, n)
 }
 
 func TestPadding(t *testing.T) {
@@ -278,7 +268,7 @@ func TestPadding(t *testing.T) {
 }
 
 func TestZeroRegion(t *testing.T) {
-	b := []byte{Meta, MetaReset, 2, Meta, MetaVer, 1, Copy | 10, OffLong, 0}
+	b := []byte{Meta, MetaReset, 2, Meta, MetaVer, 0, Copy | 10, OffLong, 0}
 	r := NewReaderBytes(b)
 
 	p := make([]byte, 16)
@@ -488,7 +478,7 @@ func TestRunlenDecoder(t *testing.T) {
 	d := NewReader(&b)
 
 	_, _ = b.Write([]byte{Meta, MetaReset | 0, 4}) //nolint:staticcheck
-	_, _ = b.Write([]byte{Meta, MetaVer | 0, 1})   //nolint:staticcheck
+	_, _ = b.Write([]byte{Meta, MetaVer | 0, 0})   //nolint:staticcheck
 	_, _ = b.Write([]byte{Literal | 1, 'a', Copy | 5, OffLong, 1})
 	_, _ = b.Write([]byte{Literal | 2, 'b', 'c', Copy | 5, OffLong, 2})
 	_, _ = b.Write([]byte{Literal | 2, 'x', 'x'})
@@ -553,7 +543,7 @@ func TestRunlenEncoder(t *testing.T) {
 
 	//
 
-	for i := 0; i < len(data); {
+	for i := 3; i < len(data); {
 		i += copy(data[i:], zeros)
 	}
 
@@ -562,9 +552,9 @@ func TestRunlenEncoder(t *testing.T) {
 	assert.Equal(t, 0x1005, n)
 
 	off = len(exp)
-	enclen = 0x1005 - Len1 - 0x100
+	enclen = 0x1005 - 3 - Len1 - 0x100
 
-	_, _ = exp.Write([]byte{Copy | Len2, byte(enclen), byte(enclen >> 8), OffLong, 0})
+	_, _ = exp.Write([]byte{Literal | 3, '0', '0', '0', Copy | Len2, byte(enclen), byte(enclen >> 8), OffLong, 0})
 
 	if !assert.Equal(t, Dump(exp[off:]), Dump(b[off:])) {
 		t.Logf("dump\n%s", Dump(b))
@@ -650,13 +640,7 @@ func testGiantLiteral(t *testing.T, f func(rnd *rand.Rand, bs int) []byte) {
 }
 
 func TestUnsupportedVersion(t *testing.T) {
-	var b Buf
-
-	w := NewWriter(&b, 128, 16)
-
-	_, _ = w.Write([]byte{0})
-
-	b[len(Magic)+2]++
+	b := append([]byte{}, Meta, MetaVer|0, byte(Version+1)) //nolint:staticcheck
 
 	r := NewReaderBytes(b)
 
@@ -717,12 +701,7 @@ func TestLongMeta(t *testing.T) {
 }
 
 func TestLongLenOff(t *testing.T) {
-	t.Run("ver1", func(t *testing.T) { testLongLenOff(t, 1) })
-	if t.Failed() {
-		return
-	}
-
-	t.Run("ver0", func(t *testing.T) { testLongLenOff(t, 0) })
+	testAllVersions(t, testLongLenOff)
 }
 
 func testLongLenOff(t *testing.T, ver int) {
@@ -763,12 +742,7 @@ func testLongLenOff(t *testing.T, ver int) {
 }
 
 func TestOnFile(t *testing.T) {
-	t.Run("ver1", func(t *testing.T) { testOnFile(t, 1) })
-	if t.Failed() {
-		return
-	}
-
-	t.Run("ver0", func(t *testing.T) { testOnFile(t, 0) })
+	testAllVersions(t, testOnFile)
 }
 
 func testOnFile(t *testing.T, ver int) {
@@ -844,6 +818,15 @@ func testOnFile(t *testing.T, ver int) {
 
 	//	t.Logf("metrics: %v  bytes %v  events %v", mm, dec.Len(), testsCount)
 	t.Logf("compression ratio %v", float32(dec.Len())/float32(enc.Len()))
+}
+
+func testAllVersions(t *testing.T, f func(t *testing.T, ver int)) {
+	for ver := 0; ver >= 0; ver-- {
+		t.Run(fmt.Sprintf("ver%d", ver), func(t *testing.T) { f(t, ver) })
+		if t.Failed() {
+			return
+		}
+	}
 }
 
 func TestOnFileRatioEstimator(t *testing.T) {
@@ -1149,108 +1132,96 @@ func nextIndex(b []byte, st int, s ...[]byte) (i int) {
 }
 
 func TestPrintLengthEncoding(t *testing.T) {
-	f := func(t *testing.T, ver int) {
-		var b Buf
-		e := Encoder{Ver: ver}
+	testAllVersions(t, testPrintLengthEncoding)
+}
 
-		for _, l := range []int{
-			1,
-			Len1 - 1,
-			Len1,
-			Len1 + 1,
-			255, 256,
-			Len1 + 256 - 1,
-			Len1 + 256,
-			Len1 + 256 + 1,
-			Len1 + 256 + 0x10000 - 1,
-			Len1 + 256 + 0x10000,
-		} {
-			b = e.Tag(b[:0], Literal, l)
+func testPrintLengthEncoding(t *testing.T, ver int) {
+	var b Buf
+	e := Encoder{Ver: ver}
 
-			t.Logf("value %5d (0x%5[1]x) encoded as   % x", l, b)
-		}
+	for _, l := range []int{
+		1,
+		Len1 - 1,
+		Len1,
+		Len1 + 1,
+		255, 256,
+		Len1 + 256 - 1,
+		Len1 + 256,
+		Len1 + 256 + 1,
+		Len1 + 256 + 0x10000 - 1,
+		Len1 + 256 + 0x10000,
+	} {
+		b = e.Tag(b[:0], Literal, l)
 
-		d := Decoder{Ver: ver}
-
-		for _, b := range [][]byte{
-			{0x00},
-			{0x01},
-			{Len1 - 1},
-			{Len1, 0x00},
-			{Len1, 0x01},
-			{Len1, 0xff},
-			{Len2, 0x00, 0x00},
-			{Len2, 0x01, 0x00},
-			{Len2, 0x00, 0x01},
-		} {
-			_, l, i, err := d.Tag(b, 0)
-			assert.NoError(t, err)
-			assert.Equal(t, len(b), i)
-
-			t.Logf("value %5d (0x%5[1]x) decoded from % x", l, b)
-		}
+		t.Logf("value %5d (0x%5[1]x) encoded as   % x", l, b)
 	}
 
-	t.Run("ver0", func(t *testing.T) {
-		f(t, 0)
-	})
+	d := Decoder{Ver: ver}
 
-	t.Run("ver1", func(t *testing.T) {
-		f(t, 1)
-	})
+	for _, b := range [][]byte{
+		{0x00},
+		{0x01},
+		{Len1 - 1},
+		{Len1, 0x00},
+		{Len1, 0x01},
+		{Len1, 0xff},
+		{Len2, 0x00, 0x00},
+		{Len2, 0x01, 0x00},
+		{Len2, 0x00, 0x01},
+	} {
+		_, l, i, err := d.Tag(b, 0)
+		assert.NoError(t, err)
+		assert.Equal(t, len(b), i)
+
+		t.Logf("value %5d (0x%5[1]x) decoded from % x", l, b)
+	}
 }
 
 func TestPrintOffsetEncoding(t *testing.T) {
-	f := func(t *testing.T, ver int) {
-		var b Buf
-		e := Encoder{Ver: ver}
+	testAllVersions(t, testPrintOffsetEncoding)
+}
 
-		for _, off := range []int{
-			1,
-			Off1 - 1,
-			Off1,
-			Off1 + 1,
-			255, 256,
-			Off1 + 256 - 1,
-			Off1 + 256,
-			Off1 + 256 + 1,
-			Off1 + 256 + 0x10000 - 1,
-			Off1 + 256 + 0x10000,
-		} {
-			b = e.Offset(b[:0], off, 0)
+func testPrintOffsetEncoding(t *testing.T, ver int) {
+	var b Buf
+	e := Encoder{Ver: ver}
 
-			t.Logf("value %5d (0x%5[1]x) encoded as   % x", off, b)
-		}
+	for _, off := range []int{
+		1,
+		Off1 - 1,
+		Off1,
+		Off1 + 1,
+		255, 256,
+		Off1 + 256 - 1,
+		Off1 + 256,
+		Off1 + 256 + 1,
+		Off1 + 256 + 0x10000 - 1,
+		Off1 + 256 + 0x10000,
+	} {
+		b = e.Offset(b[:0], off, 0)
 
-		d := Decoder{Ver: ver}
-
-		for _, b := range [][]byte{
-			{0x00},
-			{0x01},
-			{Off1 - 1},
-			{Off1, 0x00},
-			{Off1, 0x01},
-			{Off1, 0xff},
-			{Off2, 0x00, 0x00},
-			{Off2, 0x01, 0x00},
-			{Off2, 0x00, 0x01},
-			{0xfd, 0x03, 0x65}, // TestBug1
-		} {
-			off, i, err := d.Offset(b, 0, 0)
-			assert.NoError(t, err, "buf % x", b)
-			assert.Equal(t, len(b), i, "buf % x", b)
-
-			t.Logf("value %5d (0x%5[1]x) decoded from % x", off, b)
-		}
+		t.Logf("value %5d (0x%5[1]x) encoded as   % x", off, b)
 	}
 
-	t.Run("ver0", func(t *testing.T) {
-		f(t, 0)
-	})
+	d := Decoder{Ver: ver}
 
-	t.Run("ver1", func(t *testing.T) {
-		f(t, 1)
-	})
+	for _, b := range [][]byte{
+		{0x00},
+		{0x01},
+		{Off1 - 1},
+		{Off1, 0x00},
+		{Off1, 0x01},
+		{Off1, 0xff},
+		{Off2, 0x00, 0x00},
+		{Off2, 0x01, 0x00},
+		{Off2, 0x00, 0x01},
+		{0xfd, 0x03, 0x65}, // TestBug1
+	} {
+		off, i, err := d.Offset(b, 0, 0)
+		assert.NoError(t, err, "buf % x", b)
+		assert.Equal(t, len(b), i, "buf % x", b)
+
+		t.Logf("value %5d (0x%5[1]x) decoded from % x", off, b)
+	}
 }
 
 func (b *Buf) Len() int      { return len(*b) }
