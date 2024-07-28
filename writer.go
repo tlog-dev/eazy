@@ -86,10 +86,10 @@ const (
 const (
 	// len: 1 2 4 8  16 32 64 LenWide
 
-	MetaMagic       = iota << 3 // 4: "eazy"
-	MetaVer                     // 1: ver
-	MetaReset                   // 1: block_size_log
-	MetaEndOfStream             // 1: 0
+	MetaMagic = iota << 3 // 4: "eazy"
+	MetaVer               // 1: ver
+	MetaReset             // 1: block_size_log
+	MetaBreak             // 1: 0
 
 	//nolint:godot
 	// MetaCRC32IEEE
@@ -105,7 +105,6 @@ const (
 	Magic = "\x80\x02eazy"
 
 	// Version is the latest supported format version.
-	// You'll need it for low level routines such as Encoder and Decoder.
 	Version = 1
 
 	minCopyChunk = 6
@@ -335,14 +334,14 @@ func (w *Writer) WriteHeader() error {
 	return w.write()
 }
 
-func (w *Writer) WriteEndOfStream() error {
+func (w *Writer) WriteBreak() error {
 	w.b = w.b[:0]
 
 	if w.written == 0 {
 		w.b = w.appendHeader(w.b)
 	}
 
-	w.b = append(w.b, Meta, MetaEndOfStream, 0)
+	w.b = append(w.b, Meta, MetaBreak, 0)
 
 	return w.write()
 }

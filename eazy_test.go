@@ -4,21 +4,25 @@ import (
 	"bytes"
 	"encoding/hex"
 	"flag"
+	"fmt"
 	"io"
 	"math/rand"
 	"os"
 	"testing"
 	"time"
 
-	//	"github.com/nikandfor/assert"
-	"github.com/nikandfor/hacked/low"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"tlog.app/go/errors"
 )
 
 type (
 	ByteCounter int64
+
+	Buf       []byte
+	BufReader struct {
+		Buf
+		R int
+	}
 )
 
 var (
@@ -33,7 +37,7 @@ var (
 )
 
 func TestMagic(t *testing.T) {
-	var buf low.Buf
+	var buf Buf
 
 	w := NewWriter(&buf, MiB, 512)
 
@@ -71,7 +75,7 @@ func TestLiteral(t *testing.T) {
 func testLiteral(t *testing.T, ver int) {
 	const B = 32
 
-	var buf low.Buf
+	var buf Buf
 
 	w := NewWriter(&buf, B, B>>1)
 	w.e.Ver = ver
@@ -116,7 +120,7 @@ func TestCopy(t *testing.T) {
 func testCopy(t *testing.T, ver int) {
 	const B = 32
 
-	var buf low.Buf
+	var buf Buf
 
 	w := NewWriter(&buf, B, B>>1)
 	w.e.Ver = ver
@@ -169,7 +173,7 @@ func testCopy(t *testing.T, ver int) {
 
 	t.Logf("buf  pos %x\n%v", r.pos, hex.Dump(r.block))
 
-	var exp low.Buf
+	var exp Buf
 
 	wexp := NewWriter(&exp, B, B>>1)
 	wexp.e.Ver = ver
@@ -215,7 +219,7 @@ func TestBug1(t *testing.T) {
 func TestPadding(t *testing.T) {
 	const B = 32
 
-	var buf low.Buf
+	var buf Buf
 
 	w := NewWriter(&buf, B, B>>1)
 
@@ -286,7 +290,7 @@ func TestZeroRegion(t *testing.T) {
 }
 
 func TestReset(t *testing.T) {
-	var b [5]low.BufReader
+	var b [5]BufReader
 
 	w := NewWriter(&b[0], 1024, 32)
 
@@ -345,10 +349,10 @@ func TestReset(t *testing.T) {
 	assert.Equal(t, "fifth_message", string(p[:n]))
 }
 
-func TestEndOfStream(t *testing.T) {
+func TestBreak(t *testing.T) {
 	const B = 32
 
-	var buf low.Buf
+	var buf Buf
 
 	w := NewWriter(&buf, B, B>>1)
 	//	w.e.Ver = ver
@@ -357,7 +361,7 @@ func TestEndOfStream(t *testing.T) {
 	_, err := w.Write([]byte("message1"))
 	assert.NoError(t, err)
 
-	err = w.WriteEndOfStream()
+	err = w.WriteBreak()
 	assert.NoError(t, err)
 
 	_, err = w.Write([]byte("qwessage2"))
@@ -367,7 +371,7 @@ func TestEndOfStream(t *testing.T) {
 	p := make([]byte, 20)
 
 	n, err := r.Read(p)
-	assert.ErrorIs(t, err, ErrEndOfStream)
+	assert.ErrorIs(t, err, ErrBreak)
 	assert.Equal(t, []byte("message1"), p[:n])
 
 	n, err = r.Read(p)
@@ -380,13 +384,13 @@ func TestEndOfStream(t *testing.T) {
 
 	w.Reset(&buf)
 
-	err = w.WriteEndOfStream()
+	err = w.WriteBreak()
 	assert.NoError(t, err)
 
 	r.ResetBytes(buf)
 
 	n, err = r.Read(p)
-	assert.ErrorIs(t, err, ErrEndOfStream)
+	assert.ErrorIs(t, err, ErrBreak)
 	assert.Equal(t, 0, n)
 
 	n, err = r.Read(p)
@@ -395,7 +399,7 @@ func TestEndOfStream(t *testing.T) {
 }
 
 func TestReaderRequireMagic(t *testing.T) {
-	var b low.BufReader
+	var b BufReader
 
 	w := NewWriter(&b, 1024, 32)
 	w.AppendMagic = false
@@ -438,7 +442,7 @@ func TestIntersectionShort(t *testing.T) {
 func testIntersection(t *testing.T, msg2f func(rnd *rand.Rand, msg []byte) []byte) {
 	rnd := rand.New(rand.NewSource(0))
 
-	var enc low.Buf
+	var enc Buf
 
 	w := NewWriter(&enc, 1024, 512)
 
@@ -478,7 +482,7 @@ func testIntersection(t *testing.T, msg2f func(rnd *rand.Rand, msg []byte) []byt
 }
 
 func TestRunlenDecoder(t *testing.T) {
-	var b low.BufReader
+	var b BufReader
 
 	p := make([]byte, 1000)
 	d := NewReader(&b)
@@ -496,7 +500,7 @@ func TestRunlenDecoder(t *testing.T) {
 }
 
 func TestRunlenEncoder(t *testing.T) {
-	var b low.Buf
+	var b Buf
 
 	w := NewWriter(&b, 128, 16)
 
@@ -508,7 +512,7 @@ func TestRunlenEncoder(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, 18, n)
 
-	var exp low.Buf
+	var exp Buf
 
 	n, err = NewWriter(&exp, 128, 16).Write([]byte{0})
 	assert.NoError(t, err)
@@ -590,7 +594,7 @@ func TestGiantLiteral(t *testing.T) {
 }
 
 func testGiantLiteral(t *testing.T, f func(rnd *rand.Rand, bs int) []byte) {
-	var b low.Buf
+	var b Buf
 
 	rnd := rand.New(rand.NewSource(0))
 
@@ -617,7 +621,7 @@ func testGiantLiteral(t *testing.T, f func(rnd *rand.Rand, bs int) []byte) {
 }
 
 func TestUnsupportedVersion(t *testing.T) {
-	var b low.Buf
+	var b Buf
 
 	w := NewWriter(&b, 128, 16)
 
@@ -633,17 +637,20 @@ func TestUnsupportedVersion(t *testing.T) {
 }
 
 func TestLongMeta(t *testing.T) {
-	var b low.Buf
+	const someMeta = MetaTagMask
+
+	var b Buf
 
 	w := NewWriter(&b, 1024, 32)
+	w.AppendMagic = false
 
 	_, err := w.Write([]byte{1})
 	assert.NoError(t, err)
 
-	b = Encoder{}.Meta(b, MetaTagMask-1<<3, 4)
+	b = w.e.Meta(b, someMeta, 4)
 	b = append(b, 1, 2, 3, 4)
 
-	b = Encoder{}.Meta(b, MetaTagMask, 128)
+	b = w.e.Meta(b, someMeta, 128)
 
 	st := len(b)
 	b = append(b, make([]byte, 128)...)
@@ -651,10 +658,16 @@ func TestLongMeta(t *testing.T) {
 	copy(b[st:], "0123456789")
 	copy(b[len(b)-10:], "9876543210")
 
+	b = w.e.Meta(b, someMeta, 256)
+
+	st = len(b)
+	b = append(b, make([]byte, 256)...)
+
+	copy(b[st:], "abcdef")
+	copy(b[len(b)-10:], "fedcba")
+
 	_, err = w.Write([]byte{2})
 	assert.NoError(t, err)
-
-	t.Logf("dump\n%s", Dump(b))
 
 	r := NewReaderBytes(b)
 	r.SkipUnsupportedMeta = true
@@ -665,9 +678,13 @@ func TestLongMeta(t *testing.T) {
 	assert.ErrorIs(t, err, io.EOF)
 	assert.Equal(t, []byte{1, 2}, p[:n])
 
+	t.Logf("dump\n%s", Dump(b))
+
 	if t.Failed() {
 		t.Logf("dump\n%s", hex.Dump(b))
 	}
+
+	assert.Panics(t, func() { w.e.Meta(nil, 1024, 4) })
 }
 
 func TestLongLenOff(t *testing.T) {
@@ -680,7 +697,7 @@ func TestLongLenOff(t *testing.T) {
 }
 
 func testLongLenOff(t *testing.T, ver int) {
-	var b low.BufReader
+	var b BufReader
 
 	w := NewWriter(&b, 1<<18, 1<<16)
 	w.e.Ver = ver
@@ -731,7 +748,7 @@ func testOnFile(t *testing.T, ver int) {
 		t.Skipf("loading data: %v", err)
 	}
 
-	var enc low.BufReader
+	var enc BufReader
 	var buf []byte
 
 	w := NewWriter(&enc, 1024, 512)
@@ -739,7 +756,7 @@ func testOnFile(t *testing.T, ver int) {
 
 	r := NewReader(&enc)
 
-	var dumpb low.Buf
+	var dumpb Buf
 
 	d := NewDumper(nil)
 
@@ -787,7 +804,7 @@ func testOnFile(t *testing.T, ver int) {
 
 	enc.R = 0
 
-	var dec low.Buf
+	var dec Buf
 
 	n, err := io.Copy(&dec, r)
 	assert.NoError(t, err)
@@ -797,7 +814,7 @@ func testOnFile(t *testing.T, ver int) {
 	assert.Equal(t, testData[:min], dec.Bytes())
 
 	//	t.Logf("metrics: %v  bytes %v  events %v", mm, dec.Len(), testsCount)
-	t.Logf("compression ratio %v", dec.LenF()/enc.Buf.LenF())
+	t.Logf("compression ratio %v", float32(dec.Len())/float32(enc.Len()))
 }
 
 func TestOnFileRatioEstimator(t *testing.T) {
@@ -812,7 +829,7 @@ func TestOnFileRatioEstimator(t *testing.T) {
 
 	N := *ratioEstimator
 
-	var buf low.Buf
+	var buf Buf
 	w := NewWriter(&buf, 1024, 16)
 
 	for bs := 4 * 1024; bs <= 4*1024*1024; bs <<= 1 {
@@ -822,7 +839,7 @@ func TestOnFileRatioEstimator(t *testing.T) {
 			st := time.Now()
 
 			for n := 0; n < N; n++ {
-				buf.Reset()
+				buf = buf[:0]
 				w.ResetSize(&buf, bs, hs)
 
 				for i := 0; i < testsCount; i++ {
@@ -838,7 +855,7 @@ func TestOnFileRatioEstimator(t *testing.T) {
 
 			d := time.Since(st)
 
-			ratio := float64(len(testData)) / buf.LenF()
+			ratio := float64(len(testData)) / float64(buf.Len())
 			speed := float64(len(testData)) * float64(N) / (1 << 20) / d.Seconds()
 
 			t.Logf("block %7d  htable %7d  ratio %5.1f  speed %7.1f MBps  written %6d events  %8d bytes  compressed size %8d bytes",
@@ -898,7 +915,7 @@ func BenchmarkDecompressFile(b *testing.B) {
 		b.Skipf("loading data: %v", err)
 	}
 
-	encoded := make(low.Buf, 0, len(testData)/2)
+	encoded := make(Buf, 0, len(testData)/2)
 	w := NewWriter(&encoded, BlockSize, HTSize)
 
 	const limit = 20000
@@ -925,7 +942,7 @@ func BenchmarkDecompressFile(b *testing.B) {
 	b.ReportMetric(float64(written)/float64(len(encoded)), "ratio")
 
 	//	var decoded []byte
-	decoded := make(low.Buf, 0, len(testData))
+	decoded := make(Buf, 0, len(testData))
 	buf := make([]byte, 4096)
 	r := NewReaderBytes(encoded)
 
@@ -958,7 +975,7 @@ func loadTestFile(tb testing.TB, f string) (err error) {
 
 	testData, err = os.ReadFile(f)
 	if err != nil {
-		return errors.Wrap(err, "open data file")
+		return fmt.Errorf("open data file: %w", err)
 	}
 
 	//	var d tlwire.Decoder
@@ -1061,7 +1078,7 @@ func FuzzWriter(f *testing.F) {
 }
 
 func FuzzReader(f *testing.F) {
-	header := low.Buf{Meta, MetaVer, 1, Meta, MetaReset, 20}
+	header := Buf{Meta, MetaVer, 1, Meta, MetaReset, 20}
 
 	f.Add([]byte{Literal | 3, 'a', 'b', 'c'})
 	f.Add([]byte{Literal | 3, 'a', 'b', 'c', Copy | 3, 0})
@@ -1071,12 +1088,12 @@ func FuzzReader(f *testing.F) {
 	f.Add([]byte{Meta, MetaVer, 1, Meta, MetaReset, 6, Literal | 3, 'a', 'b', 'c', Copy | 3, 0})
 
 	f.Fuzz(func(t *testing.T, p []byte) {
-		b := low.BufReader{Buf: p}
+		b := BufReader{Buf: p}
 		r := NewReader(&b)
 		w := NewDumper(nil)
 
 		_, err := io.Copy(w, io.MultiReader(
-			&low.BufReader{Buf: header},
+			&BufReader{Buf: header},
 			r,
 		))
 		_ = err
@@ -1104,7 +1121,7 @@ func nextIndex(b []byte, st int, s ...[]byte) (i int) {
 
 func TestPrintLengthEncoding(t *testing.T) {
 	f := func(t *testing.T, ver int) {
-		var b low.Buf
+		var b Buf
 		e := Encoder{Ver: ver}
 
 		for _, l := range []int{
@@ -1156,7 +1173,7 @@ func TestPrintLengthEncoding(t *testing.T) {
 
 func TestPrintOffsetEncoding(t *testing.T) {
 	f := func(t *testing.T, ver int) {
-		var b low.Buf
+		var b Buf
 		e := Encoder{Ver: ver}
 
 		for _, off := range []int{
@@ -1205,4 +1222,23 @@ func TestPrintOffsetEncoding(t *testing.T) {
 	t.Run("ver1", func(t *testing.T) {
 		f(t, 1)
 	})
+}
+
+func (b *Buf) Len() int      { return len(*b) }
+func (b *Buf) Bytes() []byte { return *b }
+func (b *Buf) Write(p []byte) (int, error) {
+	*b = append(*b, p...)
+
+	return len(p), nil
+}
+
+func (b *BufReader) Read(p []byte) (int, error) {
+	n := copy(p, b.Buf[b.R:])
+	b.R += n
+
+	if b.R == len(b.Buf) {
+		return n, io.EOF
+	}
+
+	return n, nil
 }

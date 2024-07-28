@@ -9,10 +9,10 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/nikandfor/hacked/hfmt"
-	"github.com/nikandfor/hacked/low"
 	"tlog.app/go/eazy"
 )
+
+type Buf []byte
 
 var (
 	infile  = flag.String("i", "", "eazy compressed input file")
@@ -72,7 +72,7 @@ func run() (err error) {
 		fw = os.Stdout
 	}
 
-	var b low.Buf
+	var b Buf
 
 	d := eazy.NewDumper(nil)
 
@@ -85,7 +85,7 @@ func run() (err error) {
 		b = strconv.AppendInt(b, ooff, *base)
 		b = append(b, ',')
 
-		b = hfmt.Appendf(b, "%c,", tag)
+		b = fmt.Appendf(b, "%c,", tag)
 
 		b = strconv.AppendInt(b, int64(l), *base)
 		b = append(b, ',')
