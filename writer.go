@@ -11,8 +11,6 @@ import (
 type (
 	// Encoder is a low level encoder.
 	// Use Writer to just get data compressed.
-	//
-	// It's here to be able to reuse polished approaches.
 	Encoder struct {
 		Ver int
 	}
@@ -64,8 +62,8 @@ const (
 
 // Tag lengths.
 const (
-	_    = 1<<7 - iota
-	Len8 // Deprecated
+	_ = 1<<7 - iota
+	LenAlt
 	Len4
 	Len2
 	Len1
@@ -73,13 +71,13 @@ const (
 
 // Offset lengths.
 const (
-	_    = 1<<8 - iota
-	Off8 // Deprecated
+	_ = 1<<8 - iota
+	OffAlt
 	Off4
 	Off2
 	Off1
 
-	OffLong = Off8
+	OffLong = OffAlt
 )
 
 // Meta tags.
@@ -488,6 +486,8 @@ func (w *Writer) copyData(d []byte, st, end int) {
 }
 
 func (e Encoder) Tag(b []byte, tag byte, l int) []byte {
+	const reserve = 8
+
 	if l < Len1 {
 		return append(b, tag|byte(l))
 	}
@@ -506,7 +506,7 @@ func (e Encoder) Tag(b []byte, tag byte, l int) []byte {
 
 	l -= 0x1_0000
 
-	if l < 0x1_0000_0000 {
+	if l < 0x1_0000_0000-reserve {
 		return append(b, tag|Len4, byte(l), byte(l>>8), byte(l>>16), byte(l>>24))
 	}
 
@@ -514,6 +514,8 @@ func (e Encoder) Tag(b []byte, tag byte, l int) []byte {
 }
 
 func (e Encoder) Offset(b []byte, off, l int) []byte {
+	const reserve = 8
+
 	if off >= l {
 		off -= l
 	} else {
@@ -538,7 +540,7 @@ func (e Encoder) Offset(b []byte, off, l int) []byte {
 
 	off -= 0x1_0000
 
-	if off <= 0x1_0000_0000 {
+	if off < 0x1_0000_0000-reserve {
 		return append(b, Off4, byte(off), byte(off>>8), byte(off>>16), byte(off>>24))
 	}
 
@@ -550,7 +552,7 @@ func (e Encoder) Meta(b []byte, meta, l int) []byte {
 		panic(meta)
 	}
 
-	if l > 0 && l <= 64 && l&(l-1) == 0 {
+	if l > 0 && l < MetaLenMask && l&(l-1) == 0 {
 		l = bits.Len(uint(l)) - 1
 		return append(b, Meta, byte(meta)|byte(l))
 	}

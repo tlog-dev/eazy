@@ -640,7 +640,12 @@ func testGiantLiteral(t *testing.T, f func(rnd *rand.Rand, bs int) []byte) {
 }
 
 func TestUnsupportedVersion(t *testing.T) {
-	b := append([]byte{}, Meta, MetaVer|0, byte(Version+1)) //nolint:staticcheck
+	var b Buf
+
+	w := NewWriter(&b, 1024, 32)
+	w.e.Ver = Version + 1
+
+	_, _ = w.Write([]byte{1, 2})
 
 	r := NewReaderBytes(b)
 
@@ -739,6 +744,41 @@ func testLongLenOff(t *testing.T, ver int) {
 	n, err = r.Read(p)
 	assert.ErrorIs(t, err, io.EOF)
 	assert.Equal(t, msg, p[:n])
+}
+
+func TestDumper(t *testing.T) {
+	var b BufReader
+
+	w := NewWriter(&b, 1024, 32)
+
+	_, _ = w.Write([]byte("some message"))
+	_ = w.WriteBreak()
+	b.Buf = append(b.Buf, 0, 0, 0)
+	_, _ = w.Write([]byte("again some message"))
+
+	var b2, b3 Buf
+
+	d := NewDumper(&b2)
+
+	d.Debug = func(ipos, iend, opos int64, tag byte, l, x int) {
+		dl := 0
+		if tag == 'l' || tag == 'm' {
+			dl = l
+		}
+
+		b3 = fmt.Appendf(b3, "%4x  %4x  %q  %3x %3x   %2v   %v\n", ipos, opos, tag, l, x>>3, fmtbuf(b.Buf[ipos:iend]), fmtbuf(b.Buf[iend:int(iend)+dl]))
+	}
+
+	n, err := d.ReadFrom(&b)
+	assert.NoError(t, err)
+	assert.Equal(t, int64(b.Len()), n)
+
+	err = d.Close()
+	assert.NoError(t, err)
+
+	t.Logf("compressed\n%s", hex.Dump(b.Buf))
+	t.Logf("dumper\n%s", b2)
+	t.Logf("debug\n%s", b3)
 }
 
 func TestOnFile(t *testing.T) {

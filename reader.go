@@ -10,8 +10,6 @@ import (
 type (
 	// Decoder is a low level decoder.
 	// Use Reader to just get data decompressed.
-	//
-	// It's here to be able to reuse polished approaches.
 	Decoder struct {
 		Ver int
 	}
@@ -46,21 +44,24 @@ type (
 
 		r Reader
 
-		Debug        func(ioff, ooff int64, tag byte, l, off int)
+		Debug func(ioff, iend, ooff int64, tag byte, l, off int)
+
 		GlobalOffset int64
 
 		b []byte
+		p []byte // for ReadFrom
 	}
 )
 
 var (
-	ErrShortBuffer        = io.ErrShortBuffer
-	ErrBreak              = errors.New("break point")
 	ErrBadMagic           = errors.New("bad magic")
+	ErrBlockSizeOverLimit = errors.New("block size is more than the limit")
+	ErrBreak              = errors.New("break point")
 	ErrNoMagic            = errors.New("no magic")
-	ErrUnsupportedVersion = errors.New("unsupported file format version")
-	ErrUnsupportedMeta    = errors.New("unsupported meta tag")
 	ErrOverflow           = errors.New("length/offset overflow")
+	ErrShortBuffer        = io.ErrShortBuffer
+	ErrUnsupportedMeta    = errors.New("unsupported meta tag")
+	ErrUnsupportedVersion = errors.New("unsupported file format version")
 )
 
 // NewReader creates new decompressor reading from r.
@@ -224,7 +225,7 @@ func (r *Reader) readTag(st int) (i int, err error) {
 	}
 
 	if r.BlockSizeLimit != 0 && l > r.BlockSizeLimit {
-		return st, ErrOverflow
+		return st, ErrBlockSizeOverLimit
 	}
 
 	switch tag {
@@ -244,7 +245,7 @@ func (r *Reader) readTag(st int) (i int, err error) {
 
 		r.state = 'c'
 	default:
-		return st, fmt.Errorf("unsupported tag: %x", tag)
+		panic("unreachable")
 	}
 
 	r.len = l
@@ -361,7 +362,7 @@ func (d Decoder) Tag(b []byte, st int) (tag, l, i int, err error) {
 		l = Len1 + 0x100 + 0x1_0000
 		l += int(b[i]) | int(b[i+1])<<8 | int(b[i+2])<<16 | int(b[i+3])<<24
 		i += 4
-	case Len8:
+	case LenAlt:
 		return tag, l, st, ErrOverflow
 	default:
 		// l is embedded
@@ -433,7 +434,7 @@ func (d Decoder) basicOffset(b []byte, st int) (off, i int, err error) {
 		off = Off1 + 0x100 + 0x1_0000
 		off += int(b[i]) | int(b[i+1])<<8 | int(b[i+2])<<16 | int(b[i+3])<<24
 		i += 4
-	case Off8:
+	case OffAlt:
 		return off, st, ErrOverflow
 	default:
 		// off is embedded
@@ -533,20 +534,22 @@ func NewDumper(w io.Writer) *Dumper {
 func (w *Dumper) ReadFrom(r io.Reader) (tot int64, err error) {
 	var keep, n, m int
 
-	p := make([]byte, 0x10000)
+	if w.p == nil {
+		w.p = make([]byte, 0x10000)
+	}
 
 	for {
-		n, err = r.Read(p[keep:])
+		n, err = r.Read(w.p[keep:])
 		if n == 0 {
 			break
 		}
 
 		tot += int64(n)
 
-		n += keep
+		n = keep + n
 
-		m, err = w.Write(p[:n])
-		keep = copy(p, p[m:n])
+		m, err = w.Write(w.p[:n])
+		keep = copy(w.p, w.p[m:n])
 
 		if err != nil && err != ErrShortBuffer { //nolint:errorlint
 			break
@@ -604,7 +607,7 @@ func (w *Dumper) Write(p []byte) (i int, err error) { //nolint:gocognit
 			w.b = fmt.Appendf(w.b, "pad  %4x\n", i-st)
 
 			if w.Debug != nil && i != st {
-				w.Debug(w.r.boff+int64(st), w.r.pos, 'p', i-st, 0)
+				w.Debug(w.r.boff+int64(st), w.r.boff+int64(i), w.r.pos, 'p', i-st, 0)
 			}
 
 			continue
@@ -635,7 +638,7 @@ func (w *Dumper) Write(p []byte) (i int, err error) { //nolint:gocognit
 			w.b = fmt.Appendf(w.b, "meta %2x %x  %q\n", meta>>3, l, p[i:i+l])
 
 			if w.Debug != nil {
-				w.Debug(w.r.boff+int64(st), w.r.pos, 'm', l, meta)
+				w.Debug(w.r.boff+int64(st), w.r.boff+int64(i), w.r.pos, 'm', l, meta)
 			}
 
 			i += l
@@ -647,7 +650,7 @@ func (w *Dumper) Write(p []byte) (i int, err error) { //nolint:gocognit
 			w.b = fmt.Appendf(w.b, "lit  %4x        %q\n", l, p[i:i+l])
 
 			if w.Debug != nil {
-				w.Debug(w.r.boff+int64(st), w.r.pos, 'l', l, 0)
+				w.Debug(w.r.boff+int64(st), w.r.boff+int64(i), w.r.pos, 'l', l, 0)
 			}
 
 			i += l
@@ -668,7 +671,7 @@ func (w *Dumper) Write(p []byte) (i int, err error) { //nolint:gocognit
 			w.b = fmt.Appendf(w.b, "copy %4x  off %4x%s\n", l, off, long)
 
 			if w.Debug != nil {
-				w.Debug(w.r.boff+int64(st), w.r.pos, 'c', l, off)
+				w.Debug(w.r.boff+int64(st), w.r.boff+int64(i), w.r.pos, 'c', l, off)
 			}
 
 			w.r.pos += int64(l)
@@ -689,5 +692,45 @@ func (w *Dumper) Close() error {
 
 	w.b = fmt.Appendf(w.b, "%6x  ", w.r.pos)
 
+	if w.Debug != nil {
+		w.Debug(w.r.boff, w.r.boff, w.r.pos, 'e', 0, 0)
+	}
+
 	return nil
+}
+
+type fmtbuf []byte
+
+func (b fmtbuf) Format(s fmt.State, verb rune) {
+	const digits = "0123456789abcdef"
+
+	var t [5]byte
+	var ti int
+
+	for i, b := range b {
+		ti = 0
+
+		if i != 0 {
+			t[ti] = ' '
+			ti++
+		}
+
+		t[ti] = digits[b>>4]
+		ti++
+		t[ti] = digits[b&0xf]
+		ti++
+
+		_, _ = s.Write(t[:ti])
+	}
+
+	copy(t[:], "     ")
+
+	w, ok := s.Width()
+	if !ok {
+		w = 0
+	}
+
+	for i := len(b); i < w; i++ {
+		_, _ = s.Write(t[:3])
+	}
 }
