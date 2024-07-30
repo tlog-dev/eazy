@@ -206,7 +206,7 @@ Length is encoded as log2(data). `1<<length` following bytes are meta tag data.
 ```
 // Meta tags.
 const (
-	// len: 1 2 4 8  16 32 64 LenWide
+	// len: 1 2 4 8  16 32 LenWide Len0
 
 	MetaMagic = iota << 3 // 4: "eazy"
 	MetaVer               // 1: ver
@@ -214,7 +214,8 @@ const (
 
 	MetaTagMask = 0b1111_1000 // tag | log(size)
 	MetaLenMask = 0b0000_0111
-	MetaLenWide = MetaLenMask
+	MetaLenWide = MetaLenMask - 1
+	MetaLen0    = MetaLenMask - 0
 )
 
 []byte{Copy | 0, MetaMagic | 2, 'e', 'a', 'z', 'y'} // eazy magic sequence // encoded data size is 2, which decodes to 1<<2 == 4 bytes

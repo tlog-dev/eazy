@@ -82,12 +82,12 @@ const (
 
 // Meta tags.
 const (
-	// len: 1 2 4 8  16 32 64 LenWide
+	// len: 1 2 4 8  16 32 LenWide Len0
 
 	MetaMagic = iota << 3 // 4: "eazy"
 	MetaVer               // 1: ver
 	MetaReset             // 1: block_size_log
-	MetaBreak             // 1: 0
+	MetaBreak             // 0
 
 	//nolint:godot
 	// MetaCRC32IEEE
@@ -95,7 +95,8 @@ const (
 
 	MetaTagMask = 0b1111_1000 // tag | log(size)
 	MetaLenMask = 0b0000_0111
-	MetaLenWide = MetaLenMask
+	MetaLenWide = MetaLenMask - 1
+	MetaLen0    = MetaLenMask - 0
 )
 
 const (
@@ -339,7 +340,7 @@ func (w *Writer) WriteBreak() error {
 		w.b = w.appendHeader(w.b)
 	}
 
-	w.b = append(w.b, Meta, MetaBreak, 0)
+	w.b = append(w.b, Meta, MetaBreak|MetaLen0)
 
 	return w.write()
 }
@@ -552,7 +553,11 @@ func (e Encoder) Meta(b []byte, meta, l int) []byte {
 		panic(meta)
 	}
 
-	if l > 0 && l < MetaLenMask && l&(l-1) == 0 {
+	if l == 0 {
+		return append(b, Meta, byte(meta)|MetaLen0)
+	}
+
+	if l < MetaLenWide && l&(l-1) == 0 {
 		l = bits.Len(uint(l)) - 1
 		return append(b, Meta, byte(meta)|byte(l))
 	}

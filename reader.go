@@ -270,9 +270,9 @@ func (r *Reader) continueMetaTag(st int) (i int, err error) {
 		return st, ErrShortBuffer
 	}
 
-	reqLen := [...]int{4, 1, 1, 1}
+	tagLen := [...]int{4, 1, 1, 0}
 
-	if j := meta >> 3; j < len(reqLen) && l != reqLen[j] {
+	if j := meta >> 3; j < len(tagLen) && l != tagLen[j] {
 		return st, ErrUnsupportedMeta
 	}
 
@@ -453,6 +453,12 @@ func (d Decoder) Meta(b []byte, st int) (meta, l, i int, err error) {
 	i++
 
 	meta, l = meta&MetaTagMask, meta&MetaLenMask
+
+	if l == MetaLen0 {
+		l = 0
+
+		return
+	}
 
 	if l < MetaLenWide {
 		l = 1 << l
