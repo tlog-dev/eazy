@@ -75,21 +75,22 @@ linters-settings:
 linters:
   enable-all: true
   disable:
+    - err113
     - exhaustive
     - exhaustivestruct
     - exhaustruct
+    - forbidigo
     - forcetypeassert
     - funlen
     - gci
     - gochecknoglobals
     - gochecknoinits
     - godox
-    - err113
     - golint
     - gomnd
-    - mnd
     - ifshort
     - ireturn
+    - mnd
     - nakedret
     - nlreturn
     - nonamedreturns

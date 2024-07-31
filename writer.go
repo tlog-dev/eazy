@@ -20,7 +20,18 @@ type (
 
 		e Encoder
 
-		AppendMagic bool // Append FileMagic in the beginning of the stream. true by default.
+		// AppendMagic controls if FileMagic is added in the beginning of the stream.
+		// It's true by default.
+		AppendMagic bool
+
+		// FlushThreshold controls when data is flushed.
+		// It's flushed when internal buffered data size reaches FlushThreshold.
+		// 0 results in flushing each Write.
+		// -1 disables auto flushes. Data can be flushed by calling Flush
+		// or changing FlushThreshold value to a non-negative number.
+		//
+		// The value can be changed between Writes, but not simultaneously.
+		FlushThreshold int
 
 		// output
 		b       []byte
@@ -174,6 +185,8 @@ func (w *Writer) init(bs, hs int) {
 }
 
 func (w *Writer) reset() {
+	w.b = w.b[:0]
+
 	w.pos = 0
 	w.written = 0
 
@@ -191,9 +204,7 @@ func (w *Writer) reset() {
 // One Write results in one Write with comressed data to the underlaying io.Writer.
 // Header meta is added to the first Write.
 func (w *Writer) Write(p []byte) (done int, err error) {
-	w.b = w.b[:0]
-
-	if w.written == 0 {
+	if w.isreset() {
 		w.b = w.appendHeader(w.b)
 	}
 
@@ -329,11 +340,11 @@ func (w *Writer) Write(p []byte) (done int, err error) {
 // It's not required to call this method manually,
 // header is written automatically with the first w.Write.
 func (w *Writer) WriteHeader() error {
-	if w.written != 0 {
+	if !w.isreset() {
 		return nil
 	}
 
-	w.b = w.appendHeader(w.b[:0])
+	w.b = w.appendHeader(w.b)
 
 	return w.write()
 }
@@ -345,9 +356,7 @@ func (w *Writer) WriteHeader() error {
 //
 // See ErrBreak for more information.
 func (w *Writer) WriteBreak() error {
-	w.b = w.b[:0]
-
-	if w.written == 0 {
+	if w.isreset() {
 		w.b = w.appendHeader(w.b)
 	}
 
@@ -356,15 +365,41 @@ func (w *Writer) WriteBreak() error {
 	return w.write()
 }
 
+// Flush is only needed if Writer.FlushThreshold is set.
+func (w *Writer) Flush() error {
+	if len(w.b) == 0 {
+		return nil
+	}
+
+	return w.flush()
+}
+
 func (w *Writer) write() (err error) {
+	if w.FlushThreshold < 0 || len(w.b) < w.FlushThreshold {
+		return nil
+	}
+
+	return w.flush()
+}
+
+func (w *Writer) flush() (err error) {
 	n, err := w.Writer.Write(w.b)
 	w.written += int64(n)
 
 	if err != nil || n != len(w.b) {
 		w.reset()
 	}
+	if err != nil {
+		return err
+	}
 
-	return err
+	w.b = w.b[:0]
+
+	return nil
+}
+
+func (w *Writer) isreset() bool {
+	return int(w.written)+len(w.b) == 0
 }
 
 func (w *Writer) writeZeros(p []byte, done, i int) (nextdone, iend int) {

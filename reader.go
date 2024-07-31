@@ -25,6 +25,7 @@ type (
 		pos   int64 // output stream position
 
 		BlockSizeLimit      int
+		BufferSize          int
 		RequireMagic        bool
 		SkipUnsupportedMeta bool
 
@@ -79,6 +80,7 @@ func NewReader(r io.Reader) *Reader {
 	return &Reader{
 		Reader:         r,
 		BlockSizeLimit: 16 * MiB,
+		BufferSize:     64 * 1024,
 	}
 }
 
@@ -513,17 +515,15 @@ func (r *Reader) more() (err error) {
 		return io.EOF
 	}
 
-	copy(r.b, r.b[r.i:])
-	r.b = r.b[:len(r.b)-r.i]
+	end := copy(r.b, r.b[r.i:])
+	r.b = r.b[:end]
 	r.boff += int64(r.i)
 	r.i = 0
 
-	end := len(r.b)
-
 	if len(r.b) == 0 {
-		r.b = make([]byte, 1024)
+		r.b = make([]byte, r.BufferSize)
 	} else {
-		r.b = append(r.b, 0, 0, 0, 0, 0, 0, 0, 0)
+		r.b = append(r.b, make([]byte, 1024)...)
 	}
 
 	r.b = r.b[:cap(r.b)]

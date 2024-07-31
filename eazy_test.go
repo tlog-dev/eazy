@@ -386,6 +386,32 @@ func TestBreak(t *testing.T) {
 	n, err = r.Read(p)
 	assert.ErrorIs(t, err, io.EOF)
 	assert.Equal(t, 0, n)
+
+	//
+
+	buf = buf[:0]
+
+	w.Reset(&buf)
+
+	_, err = w.Write([]byte("123"))
+	assert.NoError(t, err)
+
+	err = w.WriteBreak()
+	assert.NoError(t, err)
+
+	r.ResetBytes(buf)
+
+	n, err = r.Read(p[:3])
+	assert.NoError(t, err)
+	assert.Equal(t, []byte("123"), p[:n])
+
+	n, err = r.Read(p)
+	assert.ErrorIs(t, err, ErrBreak)
+	assert.Equal(t, 0, n)
+
+	n, err = r.Read(p)
+	assert.ErrorIs(t, err, io.EOF)
+	assert.Equal(t, 0, n)
 }
 
 func TestReaderRequireMagic(t *testing.T) {
@@ -402,6 +428,87 @@ func TestReaderRequireMagic(t *testing.T) {
 
 	_, err = r.Read([]byte{0})
 	assert.ErrorIs(t, err, ErrNoMagic)
+}
+
+func TestFlush(t *testing.T) {
+	var b BufReader
+
+	w := NewWriter(&b, 1024, 32)
+	w.AppendMagic = false
+	w.FlushThreshold = -1
+
+	err := w.WriteHeader()
+	assert.NoError(t, err)
+
+	n, err := w.Write([]byte("aaabbb"))
+	assert.NoError(t, err)
+	assert.Equal(t, 6, n)
+
+	err = w.WriteBreak()
+	assert.NoError(t, err)
+
+	n, err = w.Write([]byte("ccc"))
+	assert.NoError(t, err)
+	assert.Equal(t, 3, n)
+
+	assert.Equal(t, 0, b.Len())
+
+	err = w.Flush()
+	assert.NoError(t, err)
+
+	assert.Equal(t, 16, b.Len())
+
+	err = w.WriteBreak()
+	assert.NoError(t, err)
+
+	assert.Equal(t, 16, b.Len())
+
+	err = w.Flush()
+	assert.NoError(t, err)
+
+	assert.Equal(t, Buf{
+		Meta, MetaReset, 10,
+		Literal | 6, 'a', 'a', 'a', 'b', 'b', 'b',
+		Meta, MetaBreak | MetaLen0,
+		Literal | 3, 'c', 'c', 'c',
+		Meta, MetaBreak | MetaLen0,
+	}, b.Buf)
+
+	r := NewReader(&b)
+	p := make([]byte, 10)
+
+	n, err = r.Read(p)
+	assert.ErrorIs(t, err, ErrBreak)
+	assert.Equal(t, []byte("aaabbb"), p[:n])
+
+	n, err = r.Read(p)
+	assert.ErrorIs(t, err, ErrBreak)
+	assert.Equal(t, []byte("ccc"), p[:n])
+
+	n, err = r.Read(p)
+	assert.ErrorIs(t, err, io.EOF)
+	assert.Equal(t, 0, n)
+}
+
+func TestFlushReset(t *testing.T) {
+	var b BufReader
+
+	w := NewWriter(&b, 1024, 32)
+	w.AppendMagic = false
+	w.FlushThreshold = -1
+
+	_, err := w.Write([]byte("123"))
+	assert.NoError(t, err)
+
+	assert.Equal(t, 0, b.Len())
+
+	w.Reset(w.Writer)
+	w.FlushThreshold = 0
+
+	_, err = w.Write([]byte("456"))
+	assert.NoError(t, err)
+
+	assert.Equal(t, Buf{Meta, MetaReset, 10, Literal | 3, '4', '5', '6'}, b.Buf)
 }
 
 func TestIntersectionLong(t *testing.T) {
