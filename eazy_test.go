@@ -665,6 +665,8 @@ func TestLongMeta(t *testing.T) {
 	_, err := w.Write([]byte{1})
 	assert.NoError(t, err)
 
+	b = w.e.Meta(b, someMeta, 0)
+
 	b = w.e.Meta(b, someMeta, 4)
 	b = append(b, 1, 2, 3, 4)
 

@@ -187,6 +187,9 @@ func (w *Writer) reset() {
 }
 
 // Write is io.Writer implementation.
+//
+// One Write results in one Write with comressed data to the underlaying io.Writer.
+// Header meta is added to the first Write.
 func (w *Writer) Write(p []byte) (done int, err error) {
 	w.b = w.b[:0]
 
@@ -322,6 +325,9 @@ func (w *Writer) Write(p []byte) (done int, err error) {
 	return done, nil
 }
 
+// WriteHeader manually triggers write of required header meta tags.
+// It's not required to call this method manually,
+// header is written automatically with the first w.Write.
 func (w *Writer) WriteHeader() error {
 	if w.written != 0 {
 		return nil
@@ -332,6 +338,12 @@ func (w *Writer) WriteHeader() error {
 	return w.write()
 }
 
+// WriteBreak writes Break marker which can be used to separate chunks of data in the same compression stream.
+// Reader returns ErrBreak when it encounters the marker and the Reader state stays valid.
+//
+// Marker takes 2 bytes in comressed stream.
+//
+// See ErrBreak for more information.
 func (w *Writer) WriteBreak() error {
 	w.b = w.b[:0]
 

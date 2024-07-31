@@ -56,12 +56,22 @@ type (
 var (
 	ErrBadMagic           = errors.New("bad magic")
 	ErrBlockSizeOverLimit = errors.New("block size is more than the limit")
-	ErrBreak              = errors.New("break point")
 	ErrNoMagic            = errors.New("no magic")
 	ErrOverflow           = errors.New("length/offset overflow")
 	ErrShortBuffer        = io.ErrShortBuffer
 	ErrUnsupportedMeta    = errors.New("unsupported meta tag")
 	ErrUnsupportedVersion = errors.New("unsupported file format version")
+
+	// ErrBreak is returned when a user set Break marker is reached.
+	// It allows to separate chunks of data while compressing them in the same "block".
+	//
+	// One possible use case is separating protobuf messages with the marker
+	// instead of varlen encoded length added before the message.
+	// That way you can start compressing a big message not knowing its length in advance.
+	//
+	// It's written with Writer.WriteBreak method.
+	// Readers stays valid after returning this error.
+	ErrBreak = errors.New("break point")
 )
 
 // NewReader creates new decompressor reading from r.
@@ -152,6 +162,8 @@ func (r *Reader) read(p []byte, st int) (n, i int, err error) {
 		end = len(p)
 	}
 
+	//	dpr("read %q  %x %x %x   %x %x   %x %x", r.state, r.pos, r.off, r.len, st, i, end, len(p))
+
 	switch {
 	case r.state == 'l':
 		end = copy(p[:end], r.b[i:])
@@ -164,22 +176,20 @@ func (r *Reader) read(p []byte, st int) (n, i int, err error) {
 			j += copy(p[j:end], zeros)
 		}
 	default:
-		//           < previous reads, copied to r.block
+		//           < previous reads, copy from r.block
 		//          >  runlen encoded, copy from p
 		// abcd______abcd______abcd______
 		// ^ r.off   ^ r.pos                // r.block pos
-		// ^ 0                      ^ end   // p pos
-		run := int(r.pos) - r.off
-		if end > run {
-			end = run
-		}
+		// ^ 0       ^ run          ^ end   // p pos
 
-		for j := 0; j < end; {
-			j += copy(p[j:end], r.block[(r.off+j)&r.mask:])
+		run := int(r.pos) - r.off
+
+		for j := 0; j < run; {
+			j += copy(p[j:run], r.block[(r.off+j)&r.mask:])
 		}
 
 		for j := run; j < end; {
-			j += copy(p[j:end], p[:run])
+			j += copy(p[j:end], p[:j])
 		}
 
 		r.off += end
@@ -415,7 +425,7 @@ func (d Decoder) basicOffset(b []byte, st int) (off, i int, err error) {
 	i++
 
 	// this is slower than 3 ifs in each switch case
-	//	if off >= Off1 && i+1<<(off-Off1) > len(b) {
+	//	if off >= Off1 && off <= Off4 && i+1<<(off-Off1) > len(b) {
 	//		return off, st, ErrShortBuffer
 	//	}
 
