@@ -22,7 +22,7 @@ type (
 
 		block []byte
 		mask  int
-		pos   int64 // stream position
+		pos   int64 // output stream position
 
 		BlockSizeLimit      int
 		RequireMagic        bool
@@ -30,7 +30,7 @@ type (
 
 		// current tag
 		state    byte
-		off, len int
+		off, len int // off is absolute value
 
 		// input
 		b    []byte
@@ -164,21 +164,22 @@ func (r *Reader) read(p []byte, st int) (n, i int, err error) {
 			j += copy(p[j:end], zeros)
 		}
 	default:
-		rlen := int(r.pos) - r.off
-		if rlen == 0 {
-			return 0, i, ErrOverflow
-		}
-
-		if end > rlen {
-			end = rlen
+		//           < previous reads, copied to r.block
+		//          >  runlen encoded, copy from p
+		// abcd______abcd______abcd______
+		// ^ r.off   ^ r.pos                // r.block pos
+		// ^ 0                      ^ end   // p pos
+		run := int(r.pos) - r.off
+		if end > run {
+			end = run
 		}
 
 		for j := 0; j < end; {
 			j += copy(p[j:end], r.block[(r.off+j)&r.mask:])
 		}
 
-		for j := rlen; j < end; {
-			j += copy(p[j:end], p[:rlen])
+		for j := run; j < end; {
+			j += copy(p[j:end], p[:run])
 		}
 
 		r.off += end
@@ -368,6 +369,10 @@ func (d Decoder) Tag(b []byte, st int) (tag, l, i int, err error) {
 		// l is embedded
 	}
 
+	if l < 0 {
+		return tag, l, st, ErrOverflow
+	}
+
 	return tag, l, i, nil
 }
 
@@ -390,6 +395,10 @@ func (d Decoder) Offset(b []byte, st, l int) (off, i int, err error) {
 
 	if !long {
 		off += l
+	}
+
+	if off < 0 {
+		return off, st, ErrOverflow
 	}
 
 	return off, i, nil
@@ -438,6 +447,10 @@ func (d Decoder) basicOffset(b []byte, st int) (off, i int, err error) {
 		return off, st, ErrOverflow
 	default:
 		// off is embedded
+	}
+
+	if off < 0 {
+		return off, st, ErrOverflow
 	}
 
 	return off, i, nil

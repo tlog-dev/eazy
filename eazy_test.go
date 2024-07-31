@@ -26,7 +26,7 @@ type (
 )
 
 var (
-	fileFlag       = flag.String("bench-tlog", "log.tlog", "file with tlog logs")
+	fileFlag       = flag.String("tlog-file", "log.tlog", "file with tlog logs")
 	ratioEstimator = flag.Int("ratio-estimator", 0, "ratio estimator iterations to run")
 )
 
@@ -1040,13 +1040,13 @@ func loadTestFile(tb testing.TB, f string) (err error) {
 		//	st = d.Skip(testData, st)
 
 		for { // a kinda tlwire.Decoder
+			//	println(st, len(testData))
+
 			st = nextIndex(testData, st+1,
 				[]byte{0xbf, 0x62, '_', 's', 0xcb, 0x50},
 				[]byte{0xbf, 0x62, '_', 't', 0xc2, 0x1b})
 
-			//	println(x-st, st, x, len(testData))
-
-			if testData[st-1] != 0xff {
+			if st < len(testData) && testData[st-1] != 0xff {
 				continue
 			}
 

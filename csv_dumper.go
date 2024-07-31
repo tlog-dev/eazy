@@ -17,6 +17,7 @@ type Buf []byte
 var (
 	infile  = flag.String("i", "", "eazy compressed input file")
 	outfile = flag.String("o", "", "output csv file")
+	header  = flag.Bool("h", true, "add header row")
 	base    = flag.Int("base", 10, "offset and length base")
 	data    = flag.Int("data", 0, "data max len")
 )
@@ -72,14 +73,24 @@ func run() (err error) {
 		fw = os.Stdout
 	}
 
+	if *header {
+		_, err = fw.Write([]byte("ioff,iend,ooff,tag,l,off\n"))
+		if err != nil {
+			return fmt.Errorf("write header")
+		}
+	}
+
 	var b Buf
 
 	d := eazy.NewDumper(nil)
 
-	d.Debug = func(ioff, ooff int64, tag byte, l, off int) {
+	d.Debug = func(ioff, iend, ooff int64, tag byte, l, off int) {
 		b = b[:0]
 
 		b = strconv.AppendInt(b, ioff, *base)
+		b = append(b, ',')
+
+		b = strconv.AppendInt(b, iend, *base)
 		b = append(b, ',')
 
 		b = strconv.AppendInt(b, ooff, *base)

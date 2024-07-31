@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"math/bits"
-	"os"
 	"unsafe"
 )
 
@@ -574,7 +573,7 @@ func (e Encoder) Meta(b []byte, meta, l int) []byte {
 
 //nolint:unused,deadcode,goprintffuncname
 func dpr(format string, args ...interface{}) {
-	_, _ = fmt.Fprintf(os.Stderr, format, args...)
+	println(fmt.Sprintf(format, args...))
 }
 
 func equal8(x, y []byte) bool {
