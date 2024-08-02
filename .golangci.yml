@@ -8,6 +8,8 @@ issues:
       linters:
         - goconst
         - gosec
+        - dupl
+        - gocognit
 linters-settings:
   govet:
     check-shadowing: false
