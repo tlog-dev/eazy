@@ -761,7 +761,7 @@ func TestUnsupportedVersion(t *testing.T) {
 	assert.Zero(t, n)
 }
 
-func TestLongMeta(t *testing.T) {
+func TestMeta(t *testing.T) {
 	const someMeta = MetaTagMask
 
 	var b Buf
@@ -853,6 +853,128 @@ func testLongLenOff(t *testing.T, ver int) {
 	n, err = r.Read(p)
 	assert.ErrorIs(t, err, io.EOF)
 	assert.Equal(t, msg, p[:n])
+}
+
+func TestReaderShortBuffer(t *testing.T) {
+	var b []byte
+	var e Encoder
+	var d Decoder
+
+	t.Run("Tag", func(t *testing.T) {
+		for _, tlen := range []int{20, 0x100, 0x200, 0x5000_0000} {
+			b = e.Tag(b[:0], Copy, tlen)
+
+			t.Logf("len      %#10x encoded as % #x", tlen, b)
+
+			for i := 0; i < len(b); i++ {
+				tag, _, j, err := d.Tag(b[:i], 0)
+				assert.ErrorIs(t, err, ErrShortBuffer)
+				assert.Equal(t, 0, j)
+				if i > 0 {
+					assert.Equal(t, Copy, tag)
+				}
+			}
+
+			tag, l, j, err := d.Tag(b, 0)
+			assert.NoError(t, err)
+			assert.Equal(t, len(b), j)
+			assert.Equal(t, Copy, tag)
+			assert.Equal(t, tlen, l)
+
+			if t.Failed() {
+				return
+			}
+		}
+
+		assert.Panics(t, func() {
+			b = e.Tag(b[:0], Literal, 0x1_1000_0000)
+		})
+
+		b = append(b[:0], Literal|LenAlt)
+		tag, _, j, err := d.Tag(b, 0)
+		assert.ErrorIs(t, err, ErrOverflow)
+		assert.Equal(t, 0, j)
+		assert.Equal(t, Literal, tag)
+	})
+
+	t.Run("Offset", func(t *testing.T) {
+		const tlen = 10
+
+		for _, toff := range []int{20, 0x100, 0x200, 0x500, 0x5000_0000} {
+			b = e.Offset(b[:0], toff, tlen)
+
+			t.Logf("off      %#10x encoded as % #x", toff, b)
+
+			for i := 0; i < len(b); i++ {
+				_, j, err := d.Offset(b[:i], 0, tlen)
+				assert.ErrorIs(t, err, ErrShortBuffer)
+				assert.Equal(t, 0, j)
+			}
+
+			off, j, err := d.Offset(b, 0, tlen)
+			assert.NoError(t, err)
+			assert.Equal(t, len(b), j)
+			assert.Equal(t, toff, off)
+
+			if t.Failed() {
+				return
+			}
+		}
+
+		for _, toff := range []int{20, 0x100, 0x200, 0x500, 0x5000_0000} {
+			b = e.Offset(b[:0], toff, toff+tlen)
+
+			t.Logf("long off %#10x encoded as % #x", toff, b)
+
+			for i := 0; i < len(b); i++ {
+				_, j, err := d.Offset(b[:i], 0, toff+tlen)
+				assert.ErrorIs(t, err, ErrShortBuffer)
+				assert.Equal(t, 0, j)
+			}
+
+			off, j, err := d.Offset(b, 0, toff+tlen)
+			assert.NoError(t, err)
+			assert.Equal(t, len(b), j)
+			assert.Equal(t, toff, off)
+
+			if t.Failed() {
+				return
+			}
+		}
+
+		assert.Panics(t, func() {
+			b = e.Offset(b[:0], 0x1_1000_0000, tlen)
+		})
+	})
+
+	t.Run("Meta", func(t *testing.T) {
+		const meta = 10 << 3
+
+		for _, tlen := range []int{0, 4, 0x80, 0x100, 0x200, 0x500, 0x5000_0000} {
+			b = e.Meta(b[:0], meta, tlen)
+
+			t.Logf("meta len %#10x encoded as % #x", tlen, b)
+
+			for i := 1; i < len(b); i++ {
+				tag, _, j, err := d.Meta(b[:i], 1)
+				assert.ErrorIs(t, err, ErrShortBuffer)
+				assert.Equal(t, 1, j)
+				if i > 1 {
+					assert.Equal(t, meta, tag)
+				}
+			}
+
+			tag, l, j, err := d.Meta(b, 1)
+			assert.NoError(t, err)
+			assert.Equal(t, len(b), j)
+			assert.Equal(t, meta, tag)
+			assert.Equal(t, tlen, l)
+
+			if t.Failed() {
+				return
+			}
+		}
+	})
 }
 
 func TestDumper(t *testing.T) {

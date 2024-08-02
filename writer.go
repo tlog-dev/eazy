@@ -27,7 +27,7 @@ type (
 		// FlushThreshold controls when data is flushed.
 		// It's flushed when internal buffered data size reaches FlushThreshold.
 		// 0 results in flushing each Write.
-		// -1 disables auto flushes. Data can be flushed by calling Flush
+		// -1 disables auto flush. Data can be flushed by calling Flush
 		// or changing FlushThreshold value to a non-negative number.
 		//
 		// The value can be changed between Writes, but not simultaneously.
@@ -365,7 +365,9 @@ func (w *Writer) WriteBreak() error {
 	return w.write()
 }
 
-// Flush is only needed if Writer.FlushThreshold is set.
+// Flush flushes internal buffer.
+// Writer by default flushes buffer at each write.
+// The behaviour can be changed with Writer.FlushThreshold.
 func (w *Writer) Flush() error {
 	if len(w.b) == 0 {
 		return nil

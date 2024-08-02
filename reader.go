@@ -402,7 +402,7 @@ func (d Decoder) Offset(b []byte, st, l int) (off, i int, err error) {
 
 	off, i, err = d.basicOffset(b, i)
 	if err != nil {
-		return off, i, err
+		return off, st, err
 	}
 
 	if !long {
@@ -492,7 +492,7 @@ func (d Decoder) Meta(b []byte, st int) (meta, l, i int, err error) {
 	}
 
 	if i == len(b) {
-		return 0, 0, st, ErrShortBuffer
+		return meta, 0, st, ErrShortBuffer
 	}
 
 	l = int(b[i])
@@ -504,7 +504,7 @@ func (d Decoder) Meta(b []byte, st int) (meta, l, i int, err error) {
 
 	l, i, err = d.basicOffset(b, i-1)
 	if err != nil {
-		return
+		return meta, l, st, err
 	}
 
 	return
