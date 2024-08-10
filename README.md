@@ -4,6 +4,7 @@
 [![codecov](https://codecov.io/gh/tlog-dev/eazy/tags/latest/graph/badge.svg)](https://codecov.io/gh/tlog-dev/eazy)
 [![Go Report Card](https://goreportcard.com/badge/tlog.app/go/eazy)](https://goreportcard.com/report/tlog.app/go/eazy)
 ![GitHub tag (latest SemVer)](https://img.shields.io/github/v/tag/tlog-dev/eazy?sort=semver)
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Ftlog-dev%2Feazy.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2Ftlog-dev%2Feazy?ref=badge_shield)
 
 # eazy
 
@@ -37,3 +38,7 @@ func DecompressingReader(r io.Reader) io.Reader {
 	return eazy.NewReader(r)
 }
 ```
+
+
+## License
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Ftlog-dev%2Feazy.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2Ftlog-dev%2Feazy?ref=badge_large)
