@@ -29,13 +29,13 @@ jobs:
       - name: Build
         run: go build -v ./...
 
-      - name: Test with Cover
-        run: go test -v -coverprofile=coverage.txt -covermode=atomic ./...
-        if: ${{ matrix.cover }}
-
       - name: Test without Cover
         run: go test -v ./...
         if: ${{ !matrix.cover }}
+
+      - name: Test with Cover
+        run: go test -v -coverprofile=coverage.txt -covermode=atomic ./...
+        if: ${{ matrix.cover }}
 
       - name: Test Race
         run: go test -race -v ./...

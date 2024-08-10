@@ -151,7 +151,7 @@ func (w *Writer) Reset(wr io.Writer) {
 	w.reset()
 }
 
-// ResetSize recreates Writer trying reuse allocated objects.
+// ResetSize recreates Writer reusing allocated objects.
 func (w *Writer) ResetSize(wr io.Writer, block, htable int) {
 	w.Writer = wr
 	w.init(block, htable)
@@ -199,7 +199,7 @@ func (w *Writer) reset() {
 	}
 }
 
-// Write is io.Writer implementation.
+// Write compresses p and writes result to underlaying writer.
 //
 // One Write results in one Write with comressed data to the underlaying io.Writer.
 // Header meta is added to the first Write.
@@ -338,7 +338,7 @@ func (w *Writer) Write(p []byte) (done int, err error) {
 
 // WriteHeader manually triggers write of required header meta tags.
 // It's not required to call this method manually,
-// header is written automatically with the first w.Write.
+// header is written automatically with the first Writer.Write.
 func (w *Writer) WriteHeader() error {
 	if !w.isreset() {
 		return nil

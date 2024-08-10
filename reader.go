@@ -71,7 +71,7 @@ var (
 	// That way you can start compressing a big message not knowing its length in advance.
 	//
 	// It's written with Writer.WriteBreak method.
-	// Readers stays valid after returning this error.
+	// Reader stays valid after returning this error.
 	ErrBreak = errors.New("break point")
 )
 
@@ -112,7 +112,7 @@ func (r *Reader) ResetBytes(b []byte) {
 	r.state = 0
 }
 
-// Read is io.Reader implementation.
+// Read reads data from underlaying reader and decompresses it into p.
 func (r *Reader) Read(p []byte) (n int, err error) {
 	var m, i int
 
