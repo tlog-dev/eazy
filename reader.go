@@ -185,6 +185,9 @@ func (r *Reader) read(p []byte, st int) (n, i int, err error) {
 		// ^ 0       ^ run          ^ end   // p pos
 
 		run := int(r.pos) - r.off
+		if run > len(p) {
+			run = len(p)
+		}
 
 		for j := 0; j < run; {
 			j += copy(p[j:run], r.block[(r.off+j)&r.mask:])
@@ -664,7 +667,7 @@ func (w *Dumper) Write(p []byte) (i int, err error) { //nolint:gocognit
 				w.r.d.Ver = int(p[i])
 			}
 
-			w.b = fmt.Appendf(w.b, "meta %2x %x  %q\n", meta>>3, l, p[i:i+l])
+			w.b = fmt.Appendf(w.b, "meta %2x %x  %-8q  % [3]x\n", meta>>3, l, p[i:i+l])
 
 			if w.Debug != nil {
 				w.Debug(w.r.boff+int64(st), w.r.boff+int64(i), w.r.pos, 'm', l, meta)

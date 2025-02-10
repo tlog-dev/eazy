@@ -164,7 +164,7 @@ func (w *Writer) init(bs, hs int) {
 	}
 
 	if (hs-1)&hs != 0 || hs < 4 {
-		panic("hash table size must be a power of two (hs > 4)")
+		panic("hash table size must be a power of two (hs >= 4)")
 	}
 
 	w.mask = bs - 1

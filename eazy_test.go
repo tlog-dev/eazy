@@ -1329,6 +1329,7 @@ func FuzzWriter(f *testing.F) {
 				return
 			}
 
+			t.Logf("input:\n%4x: %q\n%4x: %q\n%4x: %q", len(p0), p0, len(p1), p1, len(p2), p2)
 			t.Logf("encoded dump\n%s", Dump(wbuf.Bytes()))
 
 			panic(p)
@@ -1501,6 +1502,11 @@ func (b *Buf) Write(p []byte) (int, error) {
 	*b = append(*b, p...)
 
 	return len(p), nil
+}
+
+func (b *BufReader) Reset(p []byte) {
+	b.Buf = p
+	b.R = 0
 }
 
 func (b *BufReader) Read(p []byte) (int, error) {
