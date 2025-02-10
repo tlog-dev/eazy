@@ -1084,8 +1084,8 @@ func testOnFile(t *testing.T, ver int) {
 	assert.NoError(t, err)
 	assert.Equal(t, int(n), dec.Len())
 
-	min := dec.Len()
-	assert.Equal(t, testData[:min], dec.Bytes())
+	decLen := dec.Len()
+	assert.Equal(t, testData[:decLen], dec.Bytes())
 
 	//	t.Logf("metrics: %v  bytes %v  events %v", mm, dec.Len(), testsCount)
 	t.Logf("compression ratio %v", float32(dec.Len())/float32(enc.Len()))
@@ -1241,12 +1241,12 @@ func BenchmarkDecompressFile(b *testing.B) {
 
 	b.SetBytes(int64(decoded.Len() / testsCount))
 
-	min := len(testData)
-	if min > decoded.Len() {
-		min = decoded.Len()
+	decLen := len(testData)
+	if decLen > decoded.Len() {
+		decLen = decoded.Len()
 	}
 
-	assert.Equal(b, testData[:min], decoded.Bytes())
+	assert.Equal(b, testData[:decLen], decoded.Bytes())
 }
 
 func loadTestFile(tb testing.TB, f string) (err error) {
